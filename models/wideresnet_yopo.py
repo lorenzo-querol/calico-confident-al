@@ -26,16 +26,16 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 def conv_init(m):
     classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
+    if classname.find("Conv") != -1:
         init.xavier_uniform(m.weight, gain=np.sqrt(2))
         init.constant(m.bias, 0)
-    elif classname.find('BatchNorm') != -1:
+    elif classname.find("BatchNorm") != -1:
         init.constant(m.weight, 1)
         init.constant(m.bias, 0)
 
 
 class wide_basic(nn.Module):
-    def __init__(self, in_planes, planes, dropout_rate, stride=1, norm=None, leak=.2):
+    def __init__(self, in_planes, planes, dropout_rate, stride=1, norm=None, leak=0.2):
         super(wide_basic, self).__init__()
         self.lrelu = nn.LeakyReLU(leak)
         self.bn1 = get_norm(in_planes, norm)
@@ -59,40 +59,28 @@ class wide_basic(nn.Module):
 
 
 class Wide_ResNet(nn.Module):
-    def __init__(self, depth, widen_factor, num_classes=10, input_channels=3,
-                 sum_pool=False, norm=None, leak=.2, dropout_rate=0.0):
+    def __init__(self, depth, widen_factor, input_channels, sum_pool=False, norm=None, leak=0.2, dropout_rate=0.0):
         super(Wide_ResNet, self).__init__()
         self.in_planes = 16
         self.sum_pool = sum_pool
         self.norm = norm
         self.lrelu = nn.LeakyReLU(leak)
-        self.n_classes = num_classes
 
-        assert ((depth - 4) % 6 == 0), 'Wide-resnet depth should be 6n+4'
+        assert (depth - 4) % 6 == 0, "Wide-resnet depth should be 6n+4"
         n = (depth - 4) // 6
         k = widen_factor
 
-        print('| Wide-Resnet %dx%d yopo' % (depth, k))
+        print("Using Wide-Resnet %dx%d YOPO" % (depth, k))
         nStages = [16, 16 * k, 32 * k, 64 * k]
 
         self.layer_one_out = None
         self.conv1 = conv3x3(input_channels, nStages[0])
         self.layer_one = self.conv1
-
-        self.other_layers = nn.ModuleList()
         self.layer1 = self._wide_layer(wide_basic, nStages[1], n, dropout_rate, stride=1)
         self.layer2 = self._wide_layer(wide_basic, nStages[2], n, dropout_rate, stride=2)
         self.layer3 = self._wide_layer(wide_basic, nStages[3], n, dropout_rate, stride=2)
-        self.other_layers.append(self.layer1)
-        self.other_layers.append(self.layer2)
-        self.other_layers.append(self.layer3)
-
         self.bn1 = get_norm(nStages[3], self.norm)
-        self.other_layers.append(self.bn1)
-
         self.last_dim = nStages[3]
-        # self.linear = nn.Linear(nStages[3], num_classes)
-        # self.other_layers.append(self.linear)
 
     def _wide_layer(self, block, planes, num_blocks, dropout_rate, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -106,18 +94,23 @@ class Wide_ResNet(nn.Module):
 
     def forward(self, x, vx=None, feature=True):
         out = self.conv1(x)
+
         # for YOPO
         self.layer_one_out = out
         self.layer_one_out.requires_grad_()
         self.layer_one_out.retain_grad()
         # for YOPO
+
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.lrelu(self.bn1(out))
+
         if self.sum_pool:
             out = out.view(out.size(0), out.size(1), -1).sum(2)
         else:
-            out = F.avg_pool2d(out, 8)
+            out = F.avg_pool2d(out, (out.size(2), out.size(3)))
+
         out = out.view(out.size(0), -1)
+
         return out

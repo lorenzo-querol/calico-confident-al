@@ -13,16 +13,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
+import os
+import time
+from pathlib import Path
+from accelerate.utils import LoggerType
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import torch as t
 import torch.nn as nn
-import os
-import argparse
-import numpy as np
-import matplotlib.pyplot as plt
+import torchvision as tv
+from accelerate import Accelerator
+from accelerate.logging import get_logger
+from accelerate.utils import set_seed
+from netcal.metrics import ECE
+from netcal.presentation import ReliabilityDiagram
+from torch.distributions.multivariate_normal import MultivariateNormal
 from tqdm import tqdm
+from wandb.util import generate_id
+
+import wandb
 from ExpUtils import *
-from utils import eval_classification, Hamiltonian, checkpoint, get_data, set_bn_train, set_bn_eval, plot
 from models.jem_models import get_model_and_buffer
+from utils import (
+    DataModule,
+    Hamiltonian,
+    eval_classification,
+    load_config,
+    plot,
+)
+
 t.set_num_threads(2)
 t.backends.cudnn.benchmark = True
 t.backends.cudnn.enabled = True
@@ -31,113 +53,107 @@ inner_his = []
 conditionals = []
 
 
-def init_random(args, bs):
+def init_random(datamodule, bs):
     global conditionals
-    n_ch = 3
-    size = [3, 32, 32]
-    im_sz = 32
-    new = t.zeros(bs, n_ch, im_sz, im_sz)
+
+    n_classes = datamodule.n_classes
+
+    n_channels = datamodule.img_shape[0]
+    img_shape = datamodule.img_shape
+    img_size = datamodule.img_shape[1]
+
+    new = t.zeros(bs, n_channels, img_size, img_size)
+
     for i in range(bs):
-        index = np.random.randint(args.n_classes)
+        index = np.random.randint(n_classes)
         dist = conditionals[index]
-        new[i] = dist.sample().view(size)
+        new[i] = dist.sample().view(img_shape)
+
     return t.clamp(new, -1, 1).cpu()
 
 
-def sample_p_0(replay_buffer, bs, y=None):
+def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
     if len(replay_buffer) == 0:
-        return init_random(args, bs), []
-    buffer_size = len(replay_buffer) if y is None else len(replay_buffer) // args.n_classes
+        return init_random(datamodule, bs), []
+
+    buffer_size = len(replay_buffer) if y is None else len(replay_buffer) // datamodule.n_classes
     inds = t.randint(0, buffer_size, (bs,))
-    # if cond, convert inds to class conditional inds
+
+    # If conditional, convert inds to class-conditional inds
     if y is not None:
         inds = y.cpu() * buffer_size + inds
+
     buffer_samples = replay_buffer[inds]
-    random_samples = init_random(args, bs)
-    choose_random = (t.rand(bs) < args.reinit_freq).float()[:, None, None, None]
+    random_samples = init_random(datamodule, bs)
+    choose_random = (t.rand(bs) < reinit_freq).float()[:, None, None, None]
     samples = choose_random * random_samples + (1 - choose_random) * buffer_samples
-    return samples.to(args.device), inds
+
+    return samples.to("cuda"), inds
 
 
-def sample_q(f, replay_buffer, y=None, n_steps=10, in_steps=10, args=None, save=True):
-    """this func takes in replay_buffer now so we have the option to sample from
-    scratch (i.e. replay_buffer==[]).  See test_wrn_ebm.py for example.
-    """
+def sample_q(f, accelerator, datamodule, replay_buffer, batch_size, n_steps, in_steps, sgld_std, sgld_lr, pyld_lr, eps, y=None, save=True, **config):
     global inner_his
     inner_his = []
-    # Batch norm uses train status
-    # f.eval()
-    # get batch size
-    bs = args.batch_size if y is None else y.size(0)
-    # generate initial samples and buffer inds of those samples (if buffer is used)
-    init_sample, buffer_inds = sample_p_0(replay_buffer, bs=bs, y=y)
-    x_k = t.autograd.Variable(init_sample, requires_grad=True)
-    # sgld
-    if in_steps > 0:
-        Hamiltonian_func = Hamiltonian(f.f.layer_one)
 
-    eps = args.eps
-    if args.pyld_lr <= 0:
+    bs = batch_size if y is None else y.size(0)
+
+    init_sample, buffer_inds = sample_p_0(replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config)
+    x_k = t.autograd.Variable(init_sample, requires_grad=True)
+
+    if in_steps > 0:
+        Hamiltonian_func = Hamiltonian(accelerator.unwrap_model(f).f.layer_one)
+
+    if pyld_lr <= 0:
         in_steps = 0
 
     for it in range(n_steps):
         energies = f(x_k, y=y)
         e_x = energies.sum()
-        # wgrad = f.f.conv1.weight.grad
         eta = t.autograd.grad(e_x, [x_k], retain_graph=True)[0]
-        # e_x.backward(retain_graph=True)
-        # eta = x_k.grad.detach()
-        # f.f.conv1.weight.grad = wgrad
 
         if in_steps > 0:
-            p = 1.0 * f.f.layer_one_out.grad
+            p = 1.0 * accelerator.unwrap_model(f).f.layer_one_out.grad
             p = p.detach()
 
         tmp_inp = x_k.data
         tmp_inp.requires_grad_()
-        if args.sgld_lr > 0:
-            # if in_steps == 0: use SGLD other than PYLD
-            # if in_steps != 0: combine outter and inner gradients
-            # default 0
-            tmp_inp = x_k + t.clamp(eta, -eps, eps) * args.sgld_lr
+        if sgld_lr > 0:
+            tmp_inp = x_k + t.clamp(eta, -eps, eps) * sgld_lr
             tmp_inp = t.clamp(tmp_inp, -1, 1)
 
         for i in range(in_steps):
-
             H = Hamiltonian_func(tmp_inp, p)
 
             eta_grad = t.autograd.grad(H, [tmp_inp], only_inputs=True, retain_graph=True)[0]
-            eta_step = t.clamp(eta_grad, -eps, eps) * args.pyld_lr
+            eta_step = t.clamp(eta_grad, -eps, eps) * pyld_lr
 
             tmp_inp.data = tmp_inp.data + eta_step
             tmp_inp = t.clamp(tmp_inp, -1, 1)
 
         x_k.data = tmp_inp.data
 
-        if args.sgld_std > 0.0:
-            x_k.data += args.sgld_std * t.randn_like(x_k)
+        if sgld_std > 0.0:
+            x_k.data += sgld_std * t.randn_like(x_k)
 
     if in_steps > 0:
         loss = -1.0 * Hamiltonian_func(x_k.data, p)
         loss.backward()
 
-    f.train()
     final_samples = x_k.detach()
-    # update replay buffer
+
     if len(replay_buffer) > 0 and save:
         replay_buffer[buffer_inds] = final_samples.cpu()
+
     return final_samples
 
 
-def category_mean(dload_train, args):
-    import time
-    start = time.time()
-    if args.dataset == 'svhn':
-        size = [3, 32, 32]
-    else:
-        size = [3, 32, 32]
-    centers = t.zeros([args.n_classes, int(np.prod(size))])
-    covs = t.zeros([args.n_classes, int(np.prod(size)), int(np.prod(size))])
+def category_mean(dload_train, datamodule):
+    dataset = datamodule.dataset
+    img_shape = datamodule.img_shape
+    n_classes = datamodule.n_classes
+
+    centers = t.zeros([n_classes, int(np.prod(img_shape))])
+    covs = t.zeros([n_classes, int(np.prod(img_shape)), int(np.prod(img_shape))])
 
     im_test, targ_test = [], []
     for im, targ in dload_train:
@@ -145,257 +161,479 @@ def category_mean(dload_train, args):
         targ_test.append(targ)
     im_test, targ_test = t.cat(im_test), t.cat(targ_test)
 
-    # conditionals = []
-    for i in range(args.n_classes):
-        imc = im_test[targ_test == i]
+    for i in range(n_classes):
+        if datamodule.dataset == "cifar10":
+            mask = targ_test == i
+        else:
+            mask = (targ_test == i).squeeze(1)
+        imc = im_test[mask]
         imc = imc.view(len(imc), -1)
         mean = imc.mean(dim=0)
         sub = imc - mean.unsqueeze(dim=0)
         cov = sub.t() @ sub / len(imc)
         centers[i] = mean
         covs[i] = cov
-    print(time.time() - start)
-    t.save(centers, '%s_mean.pt' % args.dataset)
-    t.load(covs, '%s_cov.pt' % args.dataset)
+
+    if not os.path.exists("weights"):
+        os.makedirs("weights")
+
+    t.save(centers, f"weights/{dataset}_mean.pt")
+    t.save(covs, f"weights/{dataset}_cov.pt")
 
 
-def init_from_centers(args):
+def init_from_centers(accelerator, datamodule, buffer_size, **config):
     global conditionals
-    from torch.distributions.multivariate_normal import MultivariateNormal
-    bs = args.buffer_size
-    if args.dataset == 'tinyimagenet':
-        size = [3, 64, 64]
-    elif args.dataset == 'svhn':
-        size = [3, 32, 32]
-    else:
-        size = [3, 32, 32]
-    centers = t.load('%s_mean.pt' % args.dataset)
-    covs = t.load('%s_cov.pt' % args.dataset)
+
+    device = accelerator.device
+    dataset = datamodule.dataset
+    n_classes = datamodule.n_classes
+    img_shape = datamodule.img_shape
+    bs = buffer_size
+
+    centers = t.load(f"weights/{dataset}_mean.pt")
+    covs = t.load(f"weights/{dataset}_cov.pt")
 
     buffer = []
-    for i in range(args.n_classes):
-        mean = centers[i].to(args.device)
-        cov = covs[i].to(args.device)
-        dist = MultivariateNormal(mean, covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(size))).to(args.device))
-        buffer.append(dist.sample((bs // args.n_classes, )).view([bs // args.n_classes] + size).cpu())
+    for i in range(n_classes):
+        mean = centers[i].to(device)
+        cov = covs[i].to(device)
+        dist = MultivariateNormal(mean, covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(img_shape))).to(device))
+        buffer.append(dist.sample((bs // n_classes,)).view((bs // n_classes,) + img_shape).cpu())
         conditionals.append(dist)
+
     return t.clamp(t.cat(buffer), -1, 1)
 
 
-def main(args):
+def init_logger(experiment_name, experiment_type, log_dir, iter_num=None, num_labeled=None, **kwargs):
+    al_run_name = f"al_iter_{iter_num}"
+    baseline_run_name = f"baseline_{num_labeled}"
 
-    np.random.seed(args.seed)
-    t.manual_seed(args.seed)
-    if t.cuda.is_available():
-        t.cuda.manual_seed_all(args.seed)
+    logger_kwargs = {"group": experiment_name, "name": "active" if experiment_type == "active" else "baseline"}
+    ckpt_dir = os.path.join(log_dir, experiment_name, "checkpoints", al_run_name if experiment_type == "active" else baseline_run_name)
+    samples_dir = os.path.join(log_dir, experiment_name, "samples", al_run_name)
+    test_dir = os.path.join(log_dir, experiment_name, "test", al_run_name if experiment_type == "active" else baseline_run_name)
 
-    device = t.device('cuda' if t.cuda.is_available() else 'cpu')
-    args.device = device
+    return logger_kwargs, ckpt_dir, samples_dir, test_dir
 
-    # datasets
-    dload_train, dload_train_labeled, dload_valid, dload_test = get_data(args)
 
-    # for dataset centers
-    # if not os.path.isfile('%s_cov.pt' % args.dataset):
-    #     category_mean(dload_train, args)
+def train_model(
+    f,
+    optim,
+    accelerator,
+    datamodule,
+    dload_train,
+    dload_train_labeled,
+    dload_valid,
+    train_labeled_inds,
+    train_unlabeled_inds,
+    replay_buffer,
+    exp_name,
+    iter_num,
+    **config,
+):
+    logger_kwargs, ckpt_dir, samples_dir, test_dir = init_logger(
+        experiment_name=exp_name,
+        experiment_type=config["experiment_type"],
+        log_dir=config["log_dir"],
+        iter_num=iter_num + 1,
+        num_labeled=len(train_labeled_inds),
+    )
 
-    f, replay_buffer = get_model_and_buffer(args, device)
-    if args.p_x_weight > 0:
-        replay_buffer = init_from_centers(args)
+    if config["enable_tracking"]:
+        accelerator.init_trackers(project_name="JEM", config=config, init_kwargs={"wandb": logger_kwargs})
 
-    # optimizer
-    params = f.class_output.parameters() if args.clf_only else f.parameters()
-    if args.optimizer == "adam":
-        optim = t.optim.Adam(params, lr=args.lr, betas=[.9, .999], weight_decay=args.weight_decay)
-    else:
-        optim = t.optim.SGD(params, lr=args.lr, momentum=.9, weight_decay=args.weight_decay)
-
-    best_valid_acc = 0.0
     cur_iter = 0
-    # trace learning rate
-    new_lr = args.lr
-    n_steps = args.n_steps
-    in_steps = args.in_steps
-    for epoch in range(args.n_epochs):
-        if epoch in args.decay_epochs:
+    new_lr = config["lr"]
+    best_val_loss = np.inf
+    best_ckpt_path = None
+
+    for epoch in range(config["n_epochs"]):
+        if epoch in config["decay_epochs"]:
             for param_group in optim.param_groups:
-                new_lr = param_group['lr'] * args.decay_rate
-                param_group['lr'] = new_lr
-            print("Decaying lr to {}".format(new_lr))
+                new_lr = param_group["lr"] * config["decay_rate"]
+                param_group["lr"] = new_lr
+            accelerator.print(f"Decaying LR to {new_lr:.8f}.")
 
-        for i, (x_p_d, _) in tqdm(enumerate(dload_train)):
-            if cur_iter <= args.warmup_iters:
-                lr = args.lr * cur_iter / float(args.warmup_iters)
+        epoch_loss = 0.0
+        epoch_acc = 0.0
+        epoch_loss_p_x = 0.0
+        epoch_loss_p_y_x = 0.0
+        loss_p_x = 0.0
+        progress_bar = tqdm(dload_train, desc=(f"Epoch {epoch}"), disable=not accelerator.is_main_process)
+
+        """---TRAINING---"""
+
+        f.train()
+        for i, (x_p_d, _) in enumerate(progress_bar):
+            """Warmup Learning Rate"""
+            if cur_iter <= config["warmup_iters"]:
+                lr = config["lr"] * cur_iter / float(config["warmup_iters"])
                 for param_group in optim.param_groups:
-                    param_group['lr'] = lr
+                    param_group["lr"] = lr
 
-            x_p_d = x_p_d.to(device)
             x_lab, y_lab = dload_train_labeled.__next__()
-            x_lab, y_lab = x_lab.to(device), y_lab.to(device)
+            x_lab, y_lab = x_lab.to(accelerator.device), y_lab.to(accelerator.device).squeeze().long()
 
-            L = 0.
-            if args.p_x_weight > 0:  # maximize log p(x)
-                if args.plc == 'alltrain1':
+            L = 0.0
+
+            """Maximize log P(x)"""
+            if config["p_x_weight"] > 0:
+                with accelerator.no_sync(f):
                     fp_all = f(x_p_d)
                     fp = fp_all.mean()
-                if args.class_cond_p_x_sample:
-                    assert not args.uncond, "can only draw class-conditional samples if EBM is class-cond"
-                    y_q = t.randint(0, args.n_classes, (args.batch_size,)).to(device)
-                    x_q = sample_q(f, replay_buffer, y=y_q, n_steps=n_steps, in_steps=in_steps, args=args)
-                else:
-                    x_q = sample_q(f, replay_buffer, n_steps=n_steps, in_steps=in_steps, args=args)  # sample from log-sumexp
 
-                if args.plc == 'eval':
-                    f.apply(set_bn_eval)
-                    fp_all = f(x_p_d)
-                    fp = fp_all.mean()
-                if args.plc == 'alltrain2':
-                    fp_all = f(x_p_d)
-                    fp = fp_all.mean()
-                fq_all = f(x_q)
-                fq = fq_all.mean()
+                    x_q = sample_q(f, accelerator, datamodule, replay_buffer, **config)
+                    fq_all = f(x_q)
+                    fq = fq_all.mean()
 
-                l_p_x = -(fp - fq)
-                if args.plc == 'eval':
-                    f.apply(set_bn_train)
+                    loss_p_x = -(fp - fq)
+                    L += config["p_x_weight"] * loss_p_x
 
-                if cur_iter % args.print_every == 0:
-                    print('{} P(x) | {}:{:>d} f(x_p_d)={:>9.4f} f(x_q)={:>9.4f} d={:>9.4f}'.format(args.pid, epoch, i, fp, fq, fp - fq))
+            """Maximize log P(y|x)"""
+            if config["p_y_x_weight"] > 0:
+                logits = accelerator.unwrap_model(f).classify(x_lab)
+                loss_p_y_x = nn.functional.cross_entropy(logits, y_lab)
+                acc = (logits.max(1)[1] == y_lab).float().mean()
+                L += config["p_y_x_weight"] * loss_p_y_x
 
-                L += args.p_x_weight * l_p_x
+            epoch_loss += L
+            epoch_acc += acc.item()
+            epoch_loss_p_x += loss_p_x.item() if config["p_x_weight"] > 0 else 0.0
+            epoch_loss_p_y_x += loss_p_y_x.item()
 
-            if args.p_y_given_x_weight > 0:  # maximize log p(y | x)
-                logits = f.classify(x_lab)
-                l_p_y_given_x = nn.CrossEntropyLoss()(logits, y_lab)
-                if cur_iter % args.print_every == 0:
-                    acc = (logits.max(1)[1] == y_lab).float().mean()
-                    print('{} P(y|x) {}:{:>d} loss={:>9.4f}, acc={:>9.4f}'.format(args.pid, epoch, cur_iter, l_p_y_given_x.item(), acc.item()))
-                L += args.p_y_given_x_weight * l_p_y_given_x
-
-            if args.p_x_y_weight > 0:  # maximize log p(x, y)
-                assert not args.uncond, "this objective can only be trained for class-conditional EBM DUUUUUUUUHHHH!!!"
-                x_q_lab = sample_q(f, replay_buffer, y=y_lab, n_steps=n_steps, in_steps=in_steps, args=args)
-                fp, fq = f(x_lab, y_lab).mean(), f(x_q_lab, y_lab).mean()
-                l_p_x_y = -(fp - fq)
-                if cur_iter % args.print_every == 0:
-                    print('P(x, y) | {}:{:>d} f(x_p_d)={:>9.4f} f(x_q)={:>9.4f} d={:>9.4f}'.format(epoch, i, fp, fq, fp - fq))
-
-                L += args.p_x_y_weight * l_p_x_y
-
-            # break if the loss diverged...easier for poppa to run experiments this way
-            if L.abs().item() > 1e8:
-                print("BAD BOIIIIIIIIII")
-                print("min {:>4.3f} max {:>5.3f}".format(x_q.min().item(), x_q.max().item()))
-                plot('{}/diverge_{}_{:>06d}.png'.format(args.save_dir, epoch, i), x_q)
-                return
-
+            """Take gradient step"""
             optim.zero_grad()
-            L.backward()
+            accelerator.backward(L)
             optim.step()
             cur_iter += 1
 
-            if cur_iter % args.print_every == 0 and args.p_x_weight > 0:
-                if not args.plot_cond:
-                    if args.class_cond_p_x_sample:
-                        assert not args.uncond, "can only draw class-conditional samples if EBM is class-cond"
-                        y_q = t.randint(0, args.n_classes, (args.batch_size,)).to(device)
-                        x_q = sample_q(f, replay_buffer, y=y_q, n_steps=n_steps, in_steps=in_steps, args=args)
-                    else:
-                        x_q = sample_q(f, replay_buffer, n_steps=n_steps, in_steps=in_steps, args=args)
-                    plot('{}/samples/x_q_{}_{:>06d}.png'.format(args.save_dir, epoch, i), x_q)
-                if args.plot_cond:  # generate class-conditional samples
-                    y = t.arange(0, args.n_classes)[None].repeat(args.n_classes, 1).transpose(1, 0).contiguous().view(-1).to(device)
-                    x_q_y = sample_q(f, replay_buffer, y=y, n_steps=n_steps, in_steps=in_steps, args=args)
-                    plot('{}/samples/x_q_y{}_{:>06d}.png'.format(args.save_dir, epoch, i), x_q_y)
+        """---VALIDATION---"""
 
-        if epoch % args.ckpt_every == 0 and args.p_x_weight > 0:
-            checkpoint(f, replay_buffer, f'ckpt_{epoch}.pt', args, device)
+        f.eval()
+        corrects, losses = [], []
+        val_loss, val_acc = 0.0, 0.0
+        for x, y in dload_valid:
+            y = y.squeeze().long()
 
-        if epoch % args.eval_every == 0 and (args.p_y_given_x_weight > 0 or args.p_x_y_weight > 0):
-            f.eval()
             with t.no_grad():
-                correct, loss = eval_classification(f, dload_valid, 'Valid', epoch, args, wlog)
-                if args.dataset != 'tinyimagenet':
-                    t_c, _ = eval_classification(f, dload_test, 'Test', epoch, args, wlog)
-                if correct > best_valid_acc:
-                    best_valid_acc = correct
-                    print("Epoch {} Best Valid!: {}".format(epoch, correct))
-                    checkpoint(f, replay_buffer, "best_valid_ckpt.pt", args, device)
-            f.train()
-        checkpoint(f, replay_buffer, "last_ckpt.pt", args, device)
+                logits = accelerator.unwrap_model(f).classify(x)
+
+            loss = nn.functional.cross_entropy(logits, y, reduction="none")
+            correct = (logits.max(1)[1] == y).float()
+
+            losses.extend(accelerator.gather(loss.reshape(-1)))
+            corrects.extend(accelerator.gather(correct.reshape(-1)))
+
+        val_loss = np.mean([loss.item() for loss in losses])
+        val_acc = np.mean([correct.item() for correct in corrects])
+
+        """---LOGGING AND CHECKPOINTING---"""
+
+        if epoch % config["sample_every_n_epochs"] == 0 and config["p_x_weight"] > 0:
+            with accelerator.no_sync(f):
+                x_q = sample_q(f, accelerator, datamodule, replay_buffer, **config)
+
+            if accelerator.is_main_process:
+                image = tv.utils.make_grid(x_q, normalize=True, nrow=8, value_range=(-1, 1))
+
+                if not os.path.exists(samples_dir):
+                    os.makedirs(samples_dir, exist_ok=True)
+
+                tv.utils.save_image(image, f"{samples_dir}/x_q-epoch={epoch}.png")
+
+                if config["enable_tracking"]:
+                    accelerator.log(
+                        {"sampled_images": wandb.Image(image, caption="Sampled Images")}, step=epoch + (config["n_epochs"] * (iter_num + 1))
+                    )
+
+        if config["ckpt_every_n_epochs"] and epoch % config["ckpt_every_n_epochs"] == 0:
+            ckpt_dict = {
+                "model_state_dict": accelerator.unwrap_model(f).state_dict(),
+                "optimizer_state_dict": optim.state_dict(),
+                "replay_buffer": replay_buffer,
+            }
+
+            if accelerator.is_main_process:
+                accelerator.save(ckpt_dict, f"{ckpt_dir}/epoch={epoch}.ckpt")
+
+        """Check if current valid loss is the best"""
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            accelerator.print(f"Best Valid Loss: {best_val_loss:.4f} | Validation Accuracy: {val_acc:.4f}")
+
+            ckpt_dict = {
+                "model_state_dict": accelerator.unwrap_model(f).state_dict(),
+                "optimizer_state_dict": optim.state_dict(),
+                "replay_buffer": replay_buffer,
+            }
+
+            if accelerator.is_main_process:
+                if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
+                    os.remove(best_ckpt_path)
+
+                best_ckpt_path = f"{ckpt_dir}/epoch={epoch}-val_loss={val_loss:.4f}.ckpt"
+                os.makedirs(ckpt_dir, exist_ok=True)
+
+                accelerator.save(ckpt_dict, f"{ckpt_dir}/epoch={epoch}-val_loss={val_loss:.4f}.ckpt")
+
+        epoch_loss /= len(dload_train)
+        epoch_acc /= len(dload_train)
+        epoch_loss_p_x /= len(dload_train)
+        epoch_loss_p_y_x /= len(dload_train)
+
+        metric_print = f"Loss: {epoch_loss:.4f}, Acc: {epoch_acc:.4f}, Loss P(x): {epoch_loss_p_x:.4f}, Loss P(y|x): {epoch_loss_p_y_x:.4f}, Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}"
+        accelerator.print(metric_print)
+
+        if config["enable_tracking"]:
+            values = {
+                "epoch": epoch + (config["n_epochs"] * (iter_num + 1)),
+                "loss": epoch_loss,
+                "loss_p_x": epoch_loss_p_x if config["p_x_weight"] > 0 else 0.0,
+                "loss_p_y_x": epoch_loss_p_y_x,
+                "acc": epoch_acc,
+                "val_loss": val_loss,
+                "val_acc": val_acc,
+            }
+            accelerator.log(values)
+
+    """Save the last checkpoint"""
+    if accelerator.is_main_process:
+        ckpt_dict = {
+            "model_state_dict": accelerator.unwrap_model(f).state_dict(),
+            "optimizer_state_dict": optim.state_dict(),
+            "replay_buffer": replay_buffer,
+        }
+        accelerator.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
+
+    return f, test_dir
+
+
+def test_model(datamodule, accelerator, f, config, test_dir):
+    dload_test = datamodule.get_test_data()
+    dload_test = accelerator.prepare(dload_test)
+
+    corrects, losses = [], []
+    confs, gts = [], []
+    test_loss, test_acc = 0.0, 0.0
+
+    correct_per_class = {label: 0 for label in datamodule.classnames}
+    total_per_class = {label: 0 for label in datamodule.classnames}
+
+    for x, y in dload_test:
+        y = y.squeeze().long()
+
+        with t.no_grad():
+            logits = accelerator.unwrap_model(f).classify(x)
+
+        loss = t.nn.functional.cross_entropy(logits, y, reduction="none")
+        correct = (logits.max(1)[1] == y).float()
+
+        for i in range(datamodule.n_classes):
+            label = datamodule.classnames[i]
+            correct_per_class[label] += t.sum((correct == 1) & (y == i)).item()
+            total_per_class[label] += t.sum(y == i).item()
+
+        gts.extend(accelerator.gather(y.reshape(-1)))
+        confs.extend(accelerator.gather(t.nn.functional.softmax(logits, 1)))
+
+        losses.extend(loss.reshape(-1))
+        corrects.extend(correct.reshape(-1))
+
+    test_loss = np.mean([loss.item() for loss in losses])
+    test_acc = np.mean([correct.item() for correct in corrects])
+
+    accuracy_per_class = {
+        label: correct / total if total > 0 else 0
+        for label, (correct, total) in zip(datamodule.classnames, zip(correct_per_class.values(), total_per_class.values()))
+    }
+
+    confs = np.array([conf.cpu().numpy() for conf in confs]).reshape((-1, datamodule.n_classes))
+    gts = np.array([gt.cpu().numpy() for gt in gts])
+
+    ece, diagram = ECE(10), ReliabilityDiagram(10)
+    calibration_score = ece.measure(confs, gts)
+    pl = diagram.plot(confs, gts)
+
+    test_metrics = {"test_loss": test_loss, "test_acc": test_acc, "test_ece": calibration_score}
+    test_metrics = pd.DataFrame(test_metrics, index=[0])
+    accuracy_per_class = pd.DataFrame(accuracy_per_class, index=[0])
+
+    if accelerator.is_main_process:
+        if not os.path.exists(test_dir):
+            os.makedirs(test_dir, exist_ok=True)
+
+        pl.savefig(f"{test_dir}/reliability_diagram.png")
+        test_metrics.to_csv(f"{test_dir}/test_metrics.csv", index=False)
+        accuracy_per_class.to_csv(f"{test_dir}/accuracy_per_class.csv", index=False)
+
+    accelerator.print(f"Test Loss: {test_loss:.4f} | Test Accuracy: {test_acc:.4f} | ECE: {calibration_score:.4f}")
+    # accelerator.log({"test_loss": test_loss, "test_acc": test_acc, "ece": calibration_score})
+
+    # if config["enable_tracking"]:
+    # accelerator.log({"reliability_diagram": wandb.Image(pl, caption="Reliability Diagram")})
+    # accelerator.log({"accuracy_per_class": wandb.Table(dataframe=accuracy_per_class)})
+
+
+def get_optimizer(f, config):
+    """Initialize optimizer"""
+    params = f.class_output.parameters() if config["clf_only"] else f.parameters()
+    if config["optimizer"] == "adam":
+        optim = t.optim.Adam(params, lr=config["lr"], betas=(0.9, 0.999), weight_decay=config["weight_decay"])
+    else:
+        optim = t.optim.SGD(params, lr=config["lr"], momentum=0.9, weight_decay=config["weight_decay"])
+
+    return optim
+
+
+def get_experiment_name(config):
+    if config["experiment_name"] is None:
+        experiment_name = f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_{config['dataset']}_{config['group_id']}"
+    else:
+        experiment_name = config["experiment_name"]
+
+    return experiment_name
+
+
+def main(config):
+    accelerator = Accelerator(log_with=["wandb"] if config["enable_tracking"] else None)
+    datamodule = DataModule(accelerator=accelerator, **config)
+    experiment_name = get_experiment_name(config=config)
+
+    """For informative initialization"""
+    if not os.path.isfile(f"weights/{datamodule.dataset}_cov.pt") and accelerator.is_main_process:
+        category_mean(dload_train=dload_train, datamodule=datamodule)
+
+    if config["experiment_type"] == "active":
+        dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_inds, train_unlabeled_inds = datamodule.get_data()
+        f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
+        replay_buffer = init_from_centers(accelerator=accelerator, datamodule=datamodule, **config)
+        optim = get_optimizer(f=f, config=config)
+
+        """Prepare model, optimizer for DDP"""
+        f, optim = accelerator.prepare(f, optim)
+
+        for i in range(config["n_al_iters"]):
+            accelerator.print(f"Active Learning Iteration {i + 1}")
+
+            """---TRAINING---"""
+
+            f, test_dir = train_model(
+                f=f,
+                optim=optim,
+                accelerator=accelerator,
+                datamodule=datamodule,
+                dload_train=dload_train,
+                dload_train_labeled=dload_train_labeled,
+                dload_valid=dload_valid,
+                train_labeled_inds=train_labeled_inds,
+                train_unlabeled_inds=train_unlabeled_inds,
+                replay_buffer=replay_buffer,
+                exp_name=experiment_name,
+                iter_num=i,
+                **config,
+            )
+            accelerator.wait_for_everyone()
+
+            """---TESTING---"""
+
+            test_model(datamodule=datamodule, accelerator=accelerator, f=f, config=config, test_dir=test_dir)
+            accelerator.wait_for_everyone()
+
+            """---ACTIVE LEARNING STEP---"""
+
+            if accelerator.is_main_process:
+                counts = datamodule.get_class_dist()
+                counts = pd.DataFrame(counts, columns=["Class", "Num Samples"])
+                counts.to_csv(f"{test_dir}/class_dist.csv", index=False)
+
+            # if config["enable_tracking"]:
+            #     accelerator.log({"class_distribution": wandb.Table(data=datamodule.get_class_dist(), columns=["Class", "Num Samples"])})
+
+            inds_to_fix = datamodule.query_samples(f, dload_train_unlabeled, train_unlabeled_inds, datamodule.n_classes, config["query_size"])
+
+            (
+                dload_train,
+                dload_train_labeled,
+                dload_train_unlabeled,
+                dload_valid,
+                train_labeled_inds,
+                train_unlabeled_inds,
+            ) = datamodule.get_data(train_labeled_inds, train_unlabeled_inds, inds_to_fix, start_iter=False)
+
+    if config["experiment_type"] == "baseline":
+        for i in range(config["n_al_iters"]):
+            accelerator.print(f"Baseline Experiment with {config['labels_per_class'] * (i + 1)} labels per class")
+
+            (
+                dload_train,
+                dload_train_labeled,
+                dload_train_unlabeled,
+                dload_valid,
+                train_labeled_inds,
+                train_unlabeled_inds,
+            ) = datamodule.get_data(override_labels_per_class=config["labels_per_class"] * (i + 1))
+
+            f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
+            replay_buffer = init_from_centers(accelerator=accelerator, datamodule=datamodule, **config)
+            optim = get_optimizer(f=f, config=config)
+
+            """Prepare model, optimizer for DDP"""
+            f, optim = accelerator.prepare(f, optim)
+
+            """---TRAINING---"""
+
+            f, test_dir = train_model(
+                f=f,
+                optim=optim,
+                accelerator=accelerator,
+                datamodule=datamodule,
+                dload_train=dload_train,
+                dload_train_labeled=dload_train_labeled,
+                dload_valid=dload_valid,
+                train_labeled_inds=train_labeled_inds,
+                train_unlabeled_inds=train_unlabeled_inds,
+                replay_buffer=replay_buffer,
+                exp_name=experiment_name,
+                iter_num=i,
+                **config,
+            )
+            accelerator.wait_for_everyone()
+
+            """---TESTING---"""
+
+            test_model(datamodule=datamodule, accelerator=accelerator, f=f, config=config, test_dir=test_dir)
+            accelerator.wait_for_everyone()
+
+            if accelerator.is_main_process:
+                counts = datamodule.get_class_dist()
+                counts = pd.DataFrame(counts, columns=["Class", "Num Samples"])
+                counts.to_csv(f"{test_dir}/class_dist.csv", index=False)
+
+    if config["enable_tracking"]:
+        accelerator.end_training()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("LDA Energy Based Models")
-    parser.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "svhn", "cifar100", 'tinyimagenet'])
-    parser.add_argument("--data_root", type=str, default="../data")
-    # optimization
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--decay_epochs", nargs="+", type=int, default=[60, 90, 120, 135], help="decay learning rate by decay_rate at these epochs")
-    parser.add_argument("--decay_rate", type=float, default=.2, help="learning rate decay multiplier")
-    parser.add_argument("--clf_only", action="store_true", help="If set, then only train the classifier")
-    parser.add_argument("--labels_per_class", type=int, default=-1,
-                        help="number of labeled examples per class, if zero then use all labels")
-    parser.add_argument("--optimizer", choices=["adam", "sgd"], default="adam")
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--n_epochs", type=int, default=150)
-    parser.add_argument("--warmup_iters", type=int, default=-1,
-                        help="number of iters to linearly increase learning rate, if -1 then no warmmup")
-    # loss weighting
-    parser.add_argument("--p_x_weight", type=float, default=1.)
-    parser.add_argument("--p_y_given_x_weight", type=float, default=1.)
-    parser.add_argument("--p_x_y_weight", type=float, default=0.)
-    # regularization
-    parser.add_argument("--dropout_rate", type=float, default=0.0)
-    parser.add_argument("--sigma", type=float, default=3e-2,
-                        help="stddev of gaussian noise to add to input, .03 works but .1 is more stable")
-    parser.add_argument("--weight_decay", type=float, default=4e-4)
-    # network
-    parser.add_argument("--norm", type=str, default=None, choices=[None, "none", "batch", "instance", "layer", "act"], help="norm to add to weights, none works fine")
-    # EBM specific
-    parser.add_argument("--n_steps", type=int, default=10, help="number of steps of SGLD per iteration, 20 works for PCD")
-    parser.add_argument("--in_steps", type=int, default=5, help="number of steps of SGLD per iteration, 100 works for short-run, 20 works for PCD")
-    parser.add_argument("--width", type=int, default=10, help="WRN width parameter")
-    parser.add_argument("--depth", type=int, default=28, help="WRN depth parameter")
-    parser.add_argument("--uncond", action="store_true", help="If set, then the EBM is unconditional")
-    parser.add_argument("--class_cond_p_x_sample", action="store_true",
-                        help="If set we sample from p(y)p(x|y), othewise sample from p(x),"
-                             "Sample quality higher if set, but classification accuracy better if not.")
-    parser.add_argument("--buffer_size", type=int, default=10000)
-    parser.add_argument("--reinit_freq", type=float, default=0.05)
+    parser = argparse.ArgumentParser("Active Learning with JEM++")
 
-    # SGLD or PYLD
-    parser.add_argument("--sgld_lr", type=float, default=0.0)
-    parser.add_argument("--sgld_std", type=float, default=0)
-    parser.add_argument("--pyld_lr", type=float, default=0.2)
-    # logging + evaluation
-    parser.add_argument("--save_dir", type=str, default='./experiment')
-    parser.add_argument("--dir_path", type=str, default='./experiment')
-    parser.add_argument("--log_dir", type=str, default='./runs')
-    parser.add_argument("--log_arg", type=str, default='JEMPP-n_steps-in_steps-pyld_lr-norm-plc')
-    parser.add_argument("--ckpt_every", type=int, default=10, help="Epochs between checkpoint save")
-    parser.add_argument("--eval_every", type=int, default=1, help="Epochs between evaluation")
-    parser.add_argument("--print_every", type=int, default=100, help="Iterations between print")
-    parser.add_argument("--load_path", type=str, default=None)
-    parser.add_argument("--print_to_log", action="store_true", help="If true, directs std-out to log file")
-    parser.add_argument("--plot_cond", action="store_true", help="If set, save class-conditional samples")
-    parser.add_argument("--plot_uncond", action="store_true", help="If set, save unconditional samples")
-    parser.add_argument("--n_valid", type=int, default=5000)
-
-    parser.add_argument("--plc", type=str, default="alltrain1", help="alltrain1, alltrain2, eval")
-
-    parser.add_argument("--eps", type=float, default=1, help="eps bound")
-    parser.add_argument("--model", type=str, default='yopo')
-    parser.add_argument("--novis", action="store_true", help="")
-    parser.add_argument("--debug", action="store_true", help="")
-    parser.add_argument("--exp_name", type=str, default="JEMPP", help="exp name, for description")
-    parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--gpu-id", type=str, default="0")
+    parser.add_argument("--model_config", type=str, default="configs/jempp_hparams.yml", help="Path to the config file.")
+    parser.add_argument("--dataset_config", type=str, default="configs/cifar10.yml", help="Path to the config file.")
+    parser.add_argument("--logging_config", type=str, default="configs/logging.yml", help="Path to the config file.")
     args = parser.parse_args()
-    init_env(args, logger)
-    args.save_dir = args.dir_path
-    os.makedirs('{}/samples'.format(args.dir_path))
-    print = wlog
-    print(args.dir_path)
-    main(args)
-    print(args.dir_path)
+
+    model_config = load_config(Path(args.model_config))
+    dataset_config = load_config(Path(args.dataset_config))
+    logging_config = load_config(Path(args.logging_config))
+    config = {**model_config, **dataset_config, **logging_config}
+
+    config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
+
+    if not config["calibrated"]:
+        config["p_x_weight"] = 0.0
+
+    if config["experiment_name"] is None:
+        config["group_id"] = generate_id()
+
+    set_seed(config["seed"])
+
+    main(config)

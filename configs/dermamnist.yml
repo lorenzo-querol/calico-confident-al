@@ -1,0 +1,11 @@
+experiment_type: active
+calibrated: true
+
+dataset: dermamnist
+data_root: data
+
+n_al_iters: 8
+query_size: 10
+labels_per_class: 10
+
+group_id: null

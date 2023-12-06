@@ -1,0 +1,11 @@
+experiment_type: baseline
+calibrated: true
+
+dataset: cifar10
+data_root: data
+
+n_al_iters: 8
+query_size: 150
+labels_per_class: -1
+
+group_id: null

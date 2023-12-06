@@ -131,3 +131,7 @@ dmypy.json
 advertorch/
 *dev.py
 ablation/
+
+runs
+weights
+data

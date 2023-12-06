@@ -1,0 +1,10 @@
+experiment_type: active
+calibrated: true
+experiment_name: null
+
+dataset: pneumoniamnist
+data_root: data
+
+n_al_iters: 8
+query_size: 150
+labels_per_class: 75

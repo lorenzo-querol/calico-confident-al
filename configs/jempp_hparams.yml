@@ -1,0 +1,39 @@
+model: yopo
+lr: 0.1
+optimizer: sgd
+norm: batch
+
+n_epochs: 1
+batch_size: 64
+decay_epochs:
+  - 50
+  - 75
+decay_rate: 0.2
+clf_only: False
+warmup_iters: 1000
+
+# Loss weighting
+p_x_weight: 1.0
+p_y_x_weight: 1.0
+
+# Regularization
+dropout_rate: 0.0
+sigma: 0.03
+weight_decay: 0.0004
+
+# EBM specific
+n_steps: 10
+in_steps: 5
+width: 10
+depth: 28
+uncond: true
+buffer_size: 10000
+reinit_freq: 0.05
+
+# SGLD or PYLD
+sgld_lr: 0.0
+sgld_std: 0
+pyld_lr: 0.2
+eps: 1
+
+seed: 1
