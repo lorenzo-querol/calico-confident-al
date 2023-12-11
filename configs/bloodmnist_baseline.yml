@@ -1,6 +1,6 @@
 experiment_type: baseline
 calibrated: false
-experiment_name: null
+experiment_name: 2023-12-11_11-56-14_bloodmnist
 
 dataset: bloodmnist
 data_root: data

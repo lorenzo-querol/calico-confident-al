@@ -511,6 +511,7 @@ def init_logger(experiment_name, experiment_type, log_dir, num_labeled=None, **c
 def main(config):
     accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None)
     datamodule = DataModule(accelerator=accelerator, **config)
+
     experiment_name = get_experiment_name(**config)
 
     """For informative initialization"""
