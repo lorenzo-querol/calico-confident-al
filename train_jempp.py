@@ -567,7 +567,6 @@ def main(config):
 
         if config["experiment_type"] == "active":
             """---ACTIVE LEARNING STEP---"""
-
             inds_to_fix = datamodule.query_samples(
                 f=f,
                 dload_train_unlabeled=dload_train_unlabeled,
