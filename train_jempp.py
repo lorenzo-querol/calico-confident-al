@@ -601,9 +601,9 @@ def main(config):
             ) = datamodule.get_data(start_iter=False, sampling_method="random", init_size=init_size)
 
         """---REINITIALIZE---"""
-        f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)  # From scratch
-        replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, load_path=last_ckpt_path, **config)  # From last ckpt
-        optim = get_optimizer(accelerator=accelerator, f=f, **config)  # From scratch
+        f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
+        replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
+        optim = get_optimizer(accelerator=accelerator, f=f, **config)
 
     if config["enable_tracking"]:
         accelerator.end_training()

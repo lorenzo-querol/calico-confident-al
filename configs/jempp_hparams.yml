@@ -1,7 +1,7 @@
 model: yopo
-lr: 0.1
-optimizer: sgd
-norm: batch
+lr: 0.0001
+optimizer: adam
+norm: none
 
 n_epochs: 150
 batch_size: 64
@@ -38,4 +38,4 @@ sgld_std: 0
 pyld_lr: 0.2
 eps: 1
 
-seed: 42
+seed: 1
