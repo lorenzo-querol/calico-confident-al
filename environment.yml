@@ -1,0 +1,23 @@
+name: JEMPP
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - huggingface
+dependencies:
+  - python=3.11
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=11.8
+  - tensorboardx
+  - accelerate
+  - huggingface_hub
+  - tensorboard
+  - wandb
+  - safetensors
+  - pip
+  - pip:
+      - medmnist
+      - netcal==1.3.4
+      - matplotlib==3.5.3

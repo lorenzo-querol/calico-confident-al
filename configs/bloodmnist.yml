@@ -1,10 +1,9 @@
-experiment_type: active
-calibrated: true
+experiment_type: baseline
+calibrated: false
 experiment_name: null
 
 dataset: bloodmnist
 data_root: data
 
-n_al_iters: 8
-query_size: 800
+query_size: 500
 labels_per_class: 100

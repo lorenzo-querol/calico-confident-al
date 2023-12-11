@@ -58,9 +58,18 @@ class wide_basic(nn.Module):
         return out
 
 
-class Wide_ResNet(nn.Module):
-    def __init__(self, depth, widen_factor, input_channels, sum_pool=False, norm=None, leak=0.2, dropout_rate=0.0):
-        super(Wide_ResNet, self).__init__()
+class WideResNetYOPO(nn.Module):
+    def __init__(
+        self,
+        depth: int,
+        widen_factor: int,
+        input_channels: int,
+        norm: str | None,
+        sum_pool: bool = False,
+        leak: float = 0.2,
+        dropout_rate: float = 0.0,
+    ):
+        super(WideResNetYOPO, self).__init__()
         self.in_planes = 16
         self.sum_pool = sum_pool
         self.norm = norm
@@ -79,7 +88,7 @@ class Wide_ResNet(nn.Module):
         self.layer1 = self._wide_layer(wide_basic, nStages[1], n, dropout_rate, stride=1)
         self.layer2 = self._wide_layer(wide_basic, nStages[2], n, dropout_rate, stride=2)
         self.layer3 = self._wide_layer(wide_basic, nStages[3], n, dropout_rate, stride=2)
-        self.bn1 = get_norm(nStages[3], self.norm)
+        self.bn1 = get_norm(nStages[3], norm)
         self.last_dim = nStages[3]
 
     def _wide_layer(self, block, planes, num_blocks, dropout_rate, stride):
@@ -92,7 +101,7 @@ class Wide_ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, vx=None, feature=True):
+    def forward(self, x):
         out = self.conv1(x)
 
         # for YOPO

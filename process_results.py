@@ -1,11 +1,12 @@
 import argparse
 import os
-import pandas as pd
 from pathlib import Path
-from utils import load_config
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+
+from utils import load_config
 
 
 def get_test_metrics(experiment_name):
@@ -28,6 +29,10 @@ def get_test_metrics(experiment_name):
         df["iter"] = df["iter"].str.extract("(\d+)").astype(int)
         df.sort_values(by="iter", inplace=True)
 
+    min_length = min(len(al), len(baseline))
+    al = al.iloc[:min_length]
+    baseline = baseline.iloc[:min_length]
+
     al["iter"] = baseline["iter"].tolist()
 
     al.set_index(np.arange(len(al)), inplace=True)
@@ -37,7 +42,7 @@ def get_test_metrics(experiment_name):
 
 
 def get_metrics(df):
-    test_loss, test_acc, ece = df["test_loss"].tolist(), df["test_acc"].tolist(), df["ece"].tolist()
+    test_loss, test_acc, ece = df["test_loss"].tolist(), df["test_acc"].tolist(), df["test_ece"].tolist()
     return test_loss, test_acc, ece
 
 
@@ -58,7 +63,7 @@ def plot_acc_ece(df, df2):
     ax1.grid(True)
 
     # Plotting ECE against iteration for df on the second subplot
-    df.plot(x="iter", y="ece", marker="o", color="orange", label="ECE (df)", ax=ax2)
+    df.plot(x="iter", y="test_ece", marker="o", color="orange", label="ECE (df)", ax=ax2)
     ax2.set_title("ECE vs Iteration")
     ax2.set_xlabel("Iteration")
     ax2.set_ylabel("ECE")
@@ -66,7 +71,7 @@ def plot_acc_ece(df, df2):
     ax2.grid(True)
 
     # Plotting ECE against iteration for df2 on the second subplot
-    df2.plot(x="iter", y="ece", marker="x", color="red", label="ECE (df2)", ax=ax2)
+    df2.plot(x="iter", y="test_ece", marker="x", color="red", label="ECE (df2)", ax=ax2)
     ax2.legend()  # Keep legends updated
     ax2.grid(True)
 
@@ -89,4 +94,6 @@ if __name__ == "__main__":
         assert False, "Please specify experiment name"
 
     df_al, df_baseline = get_test_metrics(config["experiment_name"])
-    plot_acc_ece(df_al, df_baseline)
+    print(df_al)
+    print(df_baseline)
+    # plot_acc_ece(df_al, df_baseline)

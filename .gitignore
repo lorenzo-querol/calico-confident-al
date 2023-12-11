@@ -135,3 +135,5 @@ ablation/
 runs
 weights
 data
+wandb
+*.png

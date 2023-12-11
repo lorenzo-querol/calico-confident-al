@@ -22,7 +22,7 @@ import sys
 import argparse
 import numpy as np
 from ExpUtils import *
-from models.jem_models import F, CCF
+from models.JEM import F, CCF
 from utils import plot, Hamiltonian
 
 # Sampling
