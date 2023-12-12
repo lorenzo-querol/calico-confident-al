@@ -531,11 +531,7 @@ def main(config):
     optim = get_optimizer(accelerator=accelerator, f=f, **config)
 
     n_iters = len(datamodule.full_train) // config["query_size"]
-    logger_kwargs, dirs = init_logger(experiment_name=experiment_name, experiment_type=config["experiment_type"], log_dir=config["log_dir"])
     init_size = config["query_size"]
-
-    if config["enable_tracking"]:
-        accelerator.init_trackers(project_name="JEM", init_kwargs={"wandb": logger_kwargs})
 
     for i in range(n_iters):
         logger_kwargs, dirs = init_logger(
@@ -544,6 +540,9 @@ def main(config):
             log_dir=config["log_dir"],
             num_labeled=len(train_labeled_inds),
         )
+
+        if config["enable_tracking"]:
+            accelerator.init_trackers(project_name="JEM", init_kwargs={"wandb": logger_kwargs})
 
         """---TRAINING---"""
         f, best_ckpt_path, last_ckpt_path = train_model(
@@ -606,6 +605,10 @@ def main(config):
         f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
         replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
         optim = get_optimizer(accelerator=accelerator, f=f, **config)
+
+    """Test one last time with the best checkpoint and current labeled pool"""
+    f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, load_path=best_ckpt_path, **config)
+    test_model(f=f, accelerator=accelerator, datamodule=datamodule, dirs=dirs, **config)
 
     if config["enable_tracking"]:
         accelerator.end_training()

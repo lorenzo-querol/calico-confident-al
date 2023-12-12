@@ -1,10 +1,6 @@
 experiment_type: active
 calibrated: true
-experiment_name: null
-
+experiment_name: 2023-12-12_17-11-37_pneumoniamnist
 dataset: pneumoniamnist
-data_root: data
-
-n_al_iters: 8
-query_size: 150
-labels_per_class: 75
+labels_per_class: 10
+query_size: 500

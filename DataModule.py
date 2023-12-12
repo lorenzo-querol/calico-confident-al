@@ -61,12 +61,13 @@ class DataModule:
         return tr.Compose(final_transform)
 
     def prepare_data(self):
-        if not os.path.exists(self.data_root):
-            os.makedirs(self.data_root)
+        with self.accelerator.main_process_first():
+            if not os.path.exists(self.data_root):
+                os.makedirs(self.data_root)
 
-        self.download_dataset("train")
-        self.download_dataset("val")
-        self.download_dataset("test")
+            self.download_dataset("train")
+            self.download_dataset("val")
+            self.download_dataset("test")
 
     def download_dataset(self, split: str):
         if self.dataset == "cifar10":
@@ -100,7 +101,7 @@ class DataModule:
             self.img_shape = (info["n_channels"], 28, 28)
 
             transform = self.get_transforms(train=train, augment=augment)
-            dataset = DataClass(split=split, transform=transform, download=False)
+            dataset = DataClass(root=self.data_root, split=split, transform=transform, download=False)
 
             self.classnames = [classnames[str(i)] for i in range(len(classnames))]
             self.n_classes = len(classnames)

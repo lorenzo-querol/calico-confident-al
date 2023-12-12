@@ -1,5 +1,5 @@
-experiment_type: active
-calibrated: true
+experiment_type: baseline
+calibrated: false
 experiment_name: null
 dataset: cifar10
 labels_per_class: 100
