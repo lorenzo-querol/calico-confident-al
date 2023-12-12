@@ -1,11 +1,6 @@
-experiment_type: baseline
+experiment_type: active
 calibrated: true
-
+experiment_name: null
 dataset: cifar10
-data_root: data
-
-n_al_iters: 8
-query_size: 150
-labels_per_class: -1
-
-group_id: null
+labels_per_class: 100
+query_size: 1000
