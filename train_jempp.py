@@ -186,8 +186,9 @@ def category_mean(dload_train, datamodule):
     if not os.path.exists("weights"):
         os.makedirs("weights")
 
-    t.save(centers, f"weights/{dataset}_mean.pt")
-    t.save(covs, f"weights/{dataset}_cov.pt")
+    if datamodule.accelerator.is_main_process:
+        t.save(centers, f"weights/{dataset}_mean.pt")
+        t.save(covs, f"weights/{dataset}_cov.pt")
 
 
 def train_model(
@@ -511,18 +512,19 @@ def init_logger(experiment_name, experiment_type, log_dir, num_labeled=None, **c
 def main(config):
     accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None)
     datamodule = DataModule(accelerator=accelerator, **config)
+    datamodule.prepare_data()
 
     experiment_name = get_experiment_name(**config)
-
-    """For informative initialization"""
-    if not os.path.isfile(f"weights/{datamodule.dataset}_cov.pt") and accelerator.is_main_process:
-        category_mean(dload_train=dload_train, datamodule=datamodule)
 
     """Randomly initialize the labeled training pool"""
     dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_inds, train_unlabeled_inds = datamodule.get_data(
         sampling_method="random",
         init_size=config["query_size"],
     )
+
+    """For informative initialization"""
+    if not os.path.isfile(f"weights/{datamodule.dataset}_cov.pt"):
+        category_mean(dload_train=dload_train, datamodule=datamodule)
 
     f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
     replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)

@@ -1,14 +1,16 @@
+import os
+from collections import defaultdict
 from math import e
-from torchvision.datasets import CIFAR10
-from torch.utils.data import DataLoader, Subset
-import torchvision.transforms as tr
+
 import medmnist
 import numpy as np
 import torch as t
 import torch.nn as nn
-from collections import defaultdict
-from tqdm import tqdm
+import torchvision.transforms as tr
 from accelerate import Accelerator
+from torch.utils.data import DataLoader, Subset
+from torchvision.datasets import CIFAR10
+from tqdm import tqdm
 
 
 def cycle(loader):
@@ -59,18 +61,22 @@ class DataModule:
         return tr.Compose(final_transform)
 
     def prepare_data(self):
-        if self.accelerator.is_main_process:
-            self.download_dataset("train")
-            self.download_dataset("val")
-            self.download_dataset("test")
+        if not os.path.exists(self.data_root):
+            os.makedirs(self.data_root)
+
+        self.download_dataset("train")
+        self.download_dataset("val")
+        self.download_dataset("test")
 
     def download_dataset(self, split: str):
         if self.dataset == "cifar10":
-            CIFAR10(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
+            with self.accelerator.main_process_first():
+                CIFAR10(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
         elif self.dataset in ["bloodmnist", "organcmnist", "organamnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
-            DataClass(root=self.data_root, transform=None, split=split, download=True)
+            with self.accelerator.main_process_first():
+                DataClass(root=self.data_root, transform=None, split=split, download=True)
         else:
             raise ValueError(f"Dataset {self.dataset} not supported.")
 
