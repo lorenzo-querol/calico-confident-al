@@ -41,12 +41,12 @@ class DataModule:
         final_transform = []
         common_transform = [
             tr.ToTensor(),
-            tr.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            tr.Normalize((0.5,) * self.img_shape[0], (0.5,) * self.img_shape[0]),
         ]
 
-        """Remove normalization for grayscale images"""
-        if self.img_shape[0] == 1:
-            common_transform = common_transform[:-1]
+        # """Remove normalization for grayscale images"""
+        # if self.img_shape[0] == 1:
+        #     common_transform = common_transform[:-1]
 
         if augment:
             final_transform = [

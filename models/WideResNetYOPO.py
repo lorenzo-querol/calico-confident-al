@@ -20,6 +20,11 @@ import numpy as np
 from .norms import get_norm, Identity
 
 
+# class Swish(nn.Module):
+#     def forward(self, x):
+#         return x * t.sigmoid(x)
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=True)
 
@@ -37,7 +42,7 @@ def conv_init(m):
 class wide_basic(nn.Module):
     def __init__(self, in_planes, planes, dropout_rate, stride=1, norm=None, leak=0.2):
         super(wide_basic, self).__init__()
-        self.lrelu = nn.LeakyReLU(leak)
+        self.lrelu = nn.SiLU()
         self.bn1 = get_norm(in_planes, norm)
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
         self.dropout = Identity() if dropout_rate == 0.0 else nn.Dropout(p=dropout_rate)
@@ -73,7 +78,8 @@ class WideResNetYOPO(nn.Module):
         self.in_planes = 16
         self.sum_pool = sum_pool
         self.norm = norm
-        self.lrelu = nn.LeakyReLU(leak)
+        self.lrelu = nn.SiLU()
+        # self.lrelu2 = nn.LeakyReLU(leak)
 
         assert (depth - 4) % 6 == 0, "Wide-resnet depth should be 6n+4"
         n = (depth - 4) // 6

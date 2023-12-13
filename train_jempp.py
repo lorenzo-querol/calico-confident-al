@@ -171,7 +171,7 @@ def category_mean(dload_train, datamodule):
     im_test, targ_test = t.cat(im_test), t.cat(targ_test)
 
     for i in range(n_classes):
-        if datamodule.dataset == "cifar10":
+        if datamodule.dataset in ["cifar10", "cifar100", "svhn"]:
             mask = targ_test == i
         else:
             mask = (targ_test == i).squeeze(1)
@@ -211,7 +211,6 @@ def train_model(
     best_val_loss = np.inf
     best_val_acc = 0.0
     best_ckpt_path = None
-    reset_decay = 1.0
 
     for epoch in range(config["n_epochs"]):
         if epoch in config["decay_epochs"]:
