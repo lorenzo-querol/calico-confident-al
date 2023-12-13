@@ -44,10 +44,6 @@ class DataModule:
             tr.Normalize((0.5,) * self.img_shape[0], (0.5,) * self.img_shape[0]),
         ]
 
-        # """Remove normalization for grayscale images"""
-        # if self.img_shape[0] == 1:
-        #     common_transform = common_transform[:-1]
-
         if augment:
             final_transform = [
                 tr.Pad(4, padding_mode="reflect"),
@@ -100,7 +96,6 @@ class DataModule:
 
             transform = self.get_transforms(train=train, augment=augment)
             dataset = CIFAR10(root=self.data_root, transform=transform, train=train, download=False)
-
             self.classnames = dataset.classes
 
             return dataset
@@ -111,7 +106,6 @@ class DataModule:
 
             transform = self.get_transforms(train=train, augment=augment)
             dataset = CIFAR100(root=self.data_root, transform=transform, train=train, download=False)
-
             self.classnames = dataset.classes
 
             return dataset
@@ -122,12 +116,11 @@ class DataModule:
 
             transform = self.get_transforms(train=train, augment=augment)
             dataset = SVHN(root=self.data_root, transform=transform, split=split, download=False)
-
             self.classnames = dataset.classes
 
             return dataset
 
-        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist"]:
+        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]

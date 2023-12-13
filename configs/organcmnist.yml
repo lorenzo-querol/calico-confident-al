@@ -4,3 +4,6 @@ experiment_name: 2023-12-13_10-27-26_organcmnist
 dataset: organcmnist
 labels_per_class: 10
 query_size: 1000
+
+# Notes in running this experiment:
+# ~epoch 144 diverges with n_steps = 20, in_steps=5, adam=0.0001, bs=64, weight_decay=0.0004
