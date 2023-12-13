@@ -1,7 +1,7 @@
 model: yopo
 lr: 0.0001
 optimizer: adam
-norm: none
+norm: adam
 
 n_epochs: 150
 batch_size: 64
@@ -16,7 +16,7 @@ warmup_iters: 1000
 # Loss weighting
 p_x_weight: 1.0
 p_y_x_weight: 1.0
-l2_weight: 0.0
+l2_weight: 0.01
 
 # Regularization
 dropout_rate: 0.0
