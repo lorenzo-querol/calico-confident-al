@@ -1,0 +1,6 @@
+experiment_type: baseline
+calibrated: false
+experiment_name: null
+dataset: svhn
+labels_per_class: 100
+query_size: 1000

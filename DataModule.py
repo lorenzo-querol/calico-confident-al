@@ -9,7 +9,7 @@ import torch.nn as nn
 import torchvision.transforms as tr
 from accelerate import Accelerator
 from torch.utils.data import DataLoader, Subset
-from torchvision.datasets import CIFAR10
+from torchvision.datasets import CIFAR10, SVHN, CIFAR100, MNIST
 from tqdm import tqdm
 
 
@@ -41,14 +41,20 @@ class DataModule:
         final_transform = []
         common_transform = [
             tr.ToTensor(),
-            tr.Normalize((0.5,) * self.img_shape[0], (0.5,) * self.img_shape[0]),
+            tr.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]
 
+        """Remove normalization for grayscale images"""
         if self.img_shape[0] == 1:
             common_transform = common_transform[:-1]
 
         if augment:
-            final_transform = [tr.Pad(4, padding_mode="reflect"), tr.RandomCrop(32), tr.RandomHorizontalFlip(), tr.RandomVerticalFlip()]
+            final_transform = [
+                tr.Pad(4, padding_mode="reflect"),
+                tr.RandomCrop(self.img_shape[1]),
+                tr.RandomRotation(20),
+                tr.RandomHorizontalFlip(),
+            ]
 
             if self.dataset == "svhn":
                 final_transform = final_transform[:-2]
@@ -70,10 +76,16 @@ class DataModule:
             self.download_dataset("test")
 
     def download_dataset(self, split: str):
-        if self.dataset == "cifar10":
+        if self.dataset == "svhn":
+            with self.accelerator.main_process_first():
+                SVHN(root=self.data_root, transform=None, split=split, download=True)
+        elif self.dataset == "cifar10":
             with self.accelerator.main_process_first():
                 CIFAR10(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
-        elif self.dataset in ["bloodmnist", "organcmnist", "organamnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
+        elif self.dataset == "cifar100":
+            with self.accelerator.main_process_first():
+                CIFAR100(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
+        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             with self.accelerator.main_process_first():
@@ -93,7 +105,29 @@ class DataModule:
 
             return dataset
 
-        elif self.dataset in ["bloodmnist", "organcmnist", "organamnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
+        elif self.dataset == "cifar100":
+            self.img_shape = (3, 32, 32)
+            self.n_classes = 100
+
+            transform = self.get_transforms(train=train, augment=augment)
+            dataset = CIFAR100(root=self.data_root, transform=transform, train=train, download=False)
+
+            self.classnames = dataset.classes
+
+            return dataset
+
+        elif self.dataset == "svhn":
+            self.img_shape = (3, 32, 32)
+            self.n_classes = 10
+
+            transform = self.get_transforms(train=train, augment=augment)
+            dataset = SVHN(root=self.data_root, transform=transform, split=split, download=False)
+
+            self.classnames = dataset.classes
+
+            return dataset
+
+        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]

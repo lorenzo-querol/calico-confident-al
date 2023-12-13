@@ -533,7 +533,7 @@ def main(config):
     n_iters = len(datamodule.full_train) // config["query_size"]
     init_size = config["query_size"]
 
-    for i in range(n_iters):
+    for i in range(n_iters + 1):
         logger_kwargs, dirs = init_logger(
             experiment_name=experiment_name,
             experiment_type=config["experiment_type"],
@@ -566,6 +566,10 @@ def main(config):
 
         """---TESTING---"""
         test_model(f=f, accelerator=accelerator, datamodule=datamodule, dirs=dirs, **config)
+
+        """Stop if we have reached the maximum number of iterations"""
+        if i == n_iters:
+            break
 
         if config["experiment_type"] == "active":
             """---ACTIVE LEARNING STEP---"""
@@ -605,10 +609,6 @@ def main(config):
         f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
         replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
         optim = get_optimizer(accelerator=accelerator, f=f, **config)
-
-    """Test one last time with the best checkpoint and current labeled pool"""
-    f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, load_path=best_ckpt_path, **config)
-    test_model(f=f, accelerator=accelerator, datamodule=datamodule, dirs=dirs, **config)
 
     if config["enable_tracking"]:
         accelerator.end_training()

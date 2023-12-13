@@ -1,6 +1,6 @@
 experiment_type: baseline
 calibrated: false
-experiment_name: null
+experiment_name: 2023-12-13_09-41-44_dermamnist
 dataset: dermamnist
 labels_per_class: 10
 query_size: 1000

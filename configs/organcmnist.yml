@@ -1,6 +1,6 @@
-experiment_type: baseline
-calibrated: false
-experiment_name: null
+experiment_type: active
+calibrated: true
+experiment_name: 2023-12-13_10-27-26_organcmnist
 dataset: organcmnist
 labels_per_class: 10
 query_size: 1000
