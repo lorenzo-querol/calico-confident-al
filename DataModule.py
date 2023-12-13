@@ -9,7 +9,7 @@ import torch.nn as nn
 import torchvision.transforms as tr
 from accelerate import Accelerator
 from torch.utils.data import DataLoader, Subset
-from torchvision.datasets import CIFAR10, SVHN, CIFAR100, MNIST
+from torchvision.datasets import CIFAR10, CIFAR100, MNIST, SVHN
 from tqdm import tqdm
 
 
@@ -81,7 +81,7 @@ class DataModule:
         elif self.dataset == "cifar100":
             with self.accelerator.main_process_first():
                 CIFAR100(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
-        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist"]:
+        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             with self.accelerator.main_process_first():
