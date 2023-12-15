@@ -1,6 +1,0 @@
-experiment_type: active
-calibrated: true
-experiment_name: 2023-12-13_09-41-44_dermamnist_test
-dataset: dermamnist
-labels_per_class: 10
-query_size: 250

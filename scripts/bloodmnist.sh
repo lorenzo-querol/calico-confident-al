@@ -1,1 +1,1 @@
-accelerate launch train_jempp.py --dataset_config configs/bloodmnist.yml --model_config configs/jempp_hparams.yml
+accelerate launch train_jempp.py --dataset_config configs/medmnist/bloodmnist.yml --model_config configs/jempp_hparams.yml
