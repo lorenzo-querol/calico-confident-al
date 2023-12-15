@@ -563,7 +563,7 @@ def main(config):
         accelerator.print(f"Loading best checkpoint from {best_ckpt_path}.")
         f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, load_path=best_ckpt_path, **config)
 
-        """---TESTING---"""
+        # """---TESTING---"""
         # test_model(f=f, accelerator=accelerator, datamodule=datamodule, dirs=dirs, **config)
 
         """Stop if we have reached the maximum number of iterations"""
