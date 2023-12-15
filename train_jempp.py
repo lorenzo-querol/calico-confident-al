@@ -386,11 +386,10 @@ def train_model(
         "replay_buffer": replay_buffer,
     }
 
-    last_ckpt_path = f"{ckpt_dir}/last.ckpt"
     if accelerator.is_main_process:
         accelerator.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
 
-    return f, best_ckpt_path, last_ckpt_path
+    return f, best_ckpt_path
 
 
 def test_model(f: nn.Module, accelerator: Accelerator, datamodule: DataModule, dirs: tuple[int, int, int], **config):
@@ -493,9 +492,9 @@ def get_experiment_name(**config):
     return f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_{config['dataset']}" if config["experiment_name"] is None else config["experiment_name"]
 
 
-def init_logger(experiment_name, experiment_type, log_dir, num_labeled=None, **config):
-    dir_name = f"active_{num_labeled}" if experiment_type == "active" else f"baseline_{num_labeled}"
-    run_name = "active" if experiment_type == "active" else f"baseline"
+def init_logger(experiment_name: str, experiment_type: str, log_dir: str, seed: int, num_labeled: int = None):
+    dir_name = f"active_{num_labeled}_seed_{seed}" if experiment_type == "active" else f"baseline_{num_labeled}_seed_{seed}"
+    run_name = f"active_seed_{seed}" if experiment_type == "active" else f"baseline_seed_{seed}"
 
     logger_kwargs = {
         "group": experiment_name,
@@ -537,6 +536,7 @@ def main(config):
             experiment_name=experiment_name,
             experiment_type=config["experiment_type"],
             log_dir=config["log_dir"],
+            seed=config["seed"],
             num_labeled=len(train_labeled_inds),
         )
 
@@ -544,7 +544,7 @@ def main(config):
             accelerator.init_trackers(project_name="JEM", init_kwargs={"wandb": logger_kwargs})
 
         """---TRAINING---"""
-        f, best_ckpt_path, last_ckpt_path = train_model(
+        f, best_ckpt_path = train_model(
             f=f,
             optim=optim,
             accelerator=accelerator,
@@ -621,12 +621,14 @@ if __name__ == "__main__":
     parser.add_argument("--model_config", type=str, default="configs/jempp_hparams.yml", help="Path to the config file.")
     parser.add_argument("--dataset_config", type=str, default="configs/cifar10.yml", help="Path to the config file.")
     parser.add_argument("--logging_config", type=str, default="configs/logging.yml", help="Path to the config file.")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed.")
     args = parser.parse_args()
 
     model_config = load_config(Path(args.model_config))
     dataset_config = load_config(Path(args.dataset_config))
     logging_config = load_config(Path(args.logging_config))
     config = {**model_config, **dataset_config, **logging_config}
+    config["seed"] = args.seed
 
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})

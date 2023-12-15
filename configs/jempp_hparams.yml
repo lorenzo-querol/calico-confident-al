@@ -38,5 +38,4 @@ sgld_std: 0
 pyld_lr: 0.2
 eps: 1
 
-seed: 1
 data_root: data
