@@ -225,6 +225,7 @@ def train_model(
         epoch_loss_p_y_x = 0.0
         epoch_loss_l2 = 0.0
         loss_p_x = 0.0
+        loss_l2 = 0.0
         progress_bar = tqdm(dload_train, desc=(f"Epoch {epoch}"), disable=not accelerator.is_main_process)
 
         """---TRAINING---"""
@@ -269,7 +270,7 @@ def train_model(
             epoch_loss += L
             epoch_acc += acc.item()
             epoch_loss_p_x += loss_p_x.item() if config["p_x_weight"] > 0 else 0.0
-            epoch_loss_l2 += loss_l2.item() if config["l2_weight"] > 0 else 0.0
+            epoch_loss_l2 += loss_l2 if config["l2_weight"] > 0 else 0.0
             epoch_loss_p_y_x += loss_p_y_x.item()
 
             """Take gradient step"""
@@ -492,9 +493,9 @@ def get_experiment_name(**config):
     return f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_{config['dataset']}" if config["experiment_name"] is None else config["experiment_name"]
 
 
-def init_logger(experiment_name: str, experiment_type: str, log_dir: str, seed: int, num_labeled: int = None):
-    dir_name = f"active_{num_labeled}_seed_{seed}" if experiment_type == "active" else f"baseline_{num_labeled}_seed_{seed}"
-    run_name = f"active_seed_{seed}" if experiment_type == "active" else f"baseline_seed_{seed}"
+def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_labeled: int = None):
+    dir_name = f"active_{num_labeled}" if experiment_type == "active" else f"baseline_{num_labeled}"
+    run_name = f"active" if experiment_type == "active" else f"baseline"
 
     logger_kwargs = {
         "group": experiment_name,
@@ -536,7 +537,6 @@ def main(config):
             experiment_name=experiment_name,
             experiment_type=config["experiment_type"],
             log_dir=config["log_dir"],
-            seed=config["seed"],
             num_labeled=len(train_labeled_inds),
         )
 
@@ -564,7 +564,7 @@ def main(config):
         f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, load_path=best_ckpt_path, **config)
 
         """---TESTING---"""
-        test_model(f=f, accelerator=accelerator, datamodule=datamodule, dirs=dirs, **config)
+        # test_model(f=f, accelerator=accelerator, datamodule=datamodule, dirs=dirs, **config)
 
         """Stop if we have reached the maximum number of iterations"""
         if i == n_iters:
@@ -621,14 +621,12 @@ if __name__ == "__main__":
     parser.add_argument("--model_config", type=str, default="configs/jempp_hparams.yml", help="Path to the config file.")
     parser.add_argument("--dataset_config", type=str, default="configs/cifar10.yml", help="Path to the config file.")
     parser.add_argument("--logging_config", type=str, default="configs/logging.yml", help="Path to the config file.")
-    parser.add_argument("--seed", type=int, default=0, help="Random seed.")
     args = parser.parse_args()
 
     model_config = load_config(Path(args.model_config))
     dataset_config = load_config(Path(args.dataset_config))
     logging_config = load_config(Path(args.logging_config))
     config = {**model_config, **dataset_config, **logging_config}
-    config["seed"] = args.seed
 
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
