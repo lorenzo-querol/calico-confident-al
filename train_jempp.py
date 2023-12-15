@@ -255,16 +255,16 @@ def train_model(
                     loss_p_x = -(fp - fq)
                     L += config["p_x_weight"] * loss_p_x
 
+                    if config["l2_weight"] > 0:
+                        loss_l2 = (fq**2 + fp**2).mean() * config["l2_weight"]
+                        L += loss_l2
+
             """Maximize log P(y|x)"""
             if config["p_y_x_weight"] > 0:
                 logits = accelerator.unwrap_model(f).classify(x_lab)
                 loss_p_y_x = nn.functional.cross_entropy(logits, y_lab)
                 acc = (logits.max(1)[1] == y_lab).float().mean()
                 L += config["p_y_x_weight"] * loss_p_y_x
-
-            if config["l2_weight"] > 0:
-                loss_l2 = (fq**2 + fp**2).mean() * config["l2_weight"]
-                L += loss_l2
 
             epoch_loss += L
             epoch_acc += acc.item()
