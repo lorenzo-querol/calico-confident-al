@@ -72,22 +72,19 @@ class DataModule:
             self.download_dataset("test")
 
     def download_dataset(self, split: str):
-        if self.dataset == "svhn":
-            with self.accelerator.main_process_first():
+        with self.accelerator.main_process_first():
+            if self.dataset == "svhn":
                 SVHN(root=self.data_root, transform=None, split=split, download=True)
-        elif self.dataset == "cifar10":
-            with self.accelerator.main_process_first():
+            elif self.dataset == "cifar10":
                 CIFAR10(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
-        elif self.dataset == "cifar100":
-            with self.accelerator.main_process_first():
+            elif self.dataset == "cifar100":
                 CIFAR100(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
-        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
-            info = medmnist.INFO[self.dataset]
-            DataClass = getattr(medmnist, info["python_class"])
-            with self.accelerator.main_process_first():
+            elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
+                info = medmnist.INFO[self.dataset]
+                DataClass = getattr(medmnist, info["python_class"])
                 DataClass(root=self.data_root, transform=None, split=split, download=True)
-        else:
-            raise ValueError(f"Dataset {self.dataset} not supported.")
+            else:
+                raise ValueError(f"Dataset {self.dataset} not supported.")
 
     def _dataset_function(self, split: str, train: bool, augment: bool):
         if self.dataset == "cifar10":
@@ -135,8 +132,10 @@ class DataModule:
 
             return dataset
 
-    def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = True):
-        return DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle, num_workers=0, drop_last=drop_last, pin_memory=True)
+    def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = True, train: bool = False):
+        return DataLoader(
+            dataset, batch_size=self.batch_size if train else 1000, shuffle=shuffle, num_workers=0, drop_last=drop_last, pin_memory=True
+        )
 
     def prepare_ddp(self):
         """Prepare dataloaders for Distributed Data Parallel (DDP)."""
@@ -194,16 +193,16 @@ class DataModule:
                 indices = np.argwhere(np.isin(self.train_unlabeled_indices, indices_to_fix))
                 self.train_unlabeled_indices = np.delete(self.train_unlabeled_indices, indices)
 
-        self.accelerator.print(f"Current Labeled Train Indices: {str(len(self.train_labeled_indices))}")
-        self.accelerator.print(f"Current Unlabeled Train Indices: {str(len(self.train_unlabeled_indices))}")
+        self.accelerator.print(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
+        self.accelerator.print(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
 
         self.labeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_labeled_indices)
-        self.unlabeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_unlabeled_indices)
+        self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
         self.valid = self._dataset_function("val", train=False, augment=False)
 
-        self.dload_train = self.create_dataloader(self.full_train)
-        self.dload_train_labeled = cycle(self.create_dataloader(self.labeled))
-        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled) if len(self.train_unlabeled_indices) > 0 else None
+        self.dload_train = self.create_dataloader(self.full_train, train=True)
+        self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, drop_last=False, train=True))
+        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, drop_last=False) if len(self.train_unlabeled_indices) > 0 else None
         self.dload_valid = self.create_dataloader(self.valid, shuffle=False, drop_last=False)
 
         if t.cuda.device_count() > 1:
@@ -227,31 +226,34 @@ class DataModule:
 
         return self.dload_test
 
-    def query_samples(self, f: nn.Module, dload_train_unlabeled: DataLoader, train_unlabeled_inds: list[int], n_classes: int, query_size: int):
+    def query_samples(self, f: nn.Module, dload_train_unlabeled: DataLoader, train_unlabeled_inds: list[int], query_size: int):
         confs, confs_to_fix = [], []
 
-        f.eval()
         with t.no_grad():
-            progress_bar = tqdm(dload_train_unlabeled, desc="Predicting Unlabeled", disable=not self.accelerator.is_main_process)
-            for i, (x, y) in enumerate(progress_bar):
-                x, y = x.to(self.accelerator.device), y.to(self.accelerator.device).squeeze().long()
-                logits = self.accelerator.unwrap_model(f).classify(x)
+            for i, (x_p_d, y_p_d) in enumerate(tqdm(dload_train_unlabeled, disable=not self.accelerator.is_main_process)):
+                x_p_d, y_p_d = x_p_d.to(self.accelerator.device), y_p_d.to(self.accelerator.device).squeeze().long()
+                logits = self.accelerator.unwrap_model(f).classify(x_p_d)
 
-                confs.extend(nn.functional.softmax(logits, 1).cpu().numpy().tolist())
-                confs_to_fix = [(conf.max(), train_unlabeled_inds[i]) for i, conf in enumerate(np.array(confs).reshape((-1, n_classes)))]
+                confs.extend(nn.functional.softmax(logits, dim=1).cpu().numpy())
 
-                """Sort by confidence and take top query_size"""
-                confs_to_fix.sort(key=lambda x: x[0])
-                confs_to_fix = confs_to_fix[:query_size]
+            confs = np.array(confs).reshape((-1, self.n_classes))
 
-                inds_to_fix = [ind for conf, ind in confs_to_fix]
-                inds_to_fix.sort()
+            for ind, conf in enumerate(confs):
+                if ind >= len(train_unlabeled_inds):
+                    break
+                confs_to_fix.append((conf.max(), train_unlabeled_inds[ind]))
 
-            return inds_to_fix
+            """Sorts by confidence for each image"""
+            confs_to_fix.sort(key=lambda x: x[0])
 
-    def random_sampling(self, train_unlabeled_inds: list[int], query_size: int):
-        inds_to_fix = np.random.choice(train_unlabeled_inds, query_size, replace=False)
-        inds_to_fix.sort()
+            # Ensure that the number of samples to be queried is not greater than the size of the unlabeled pool
+            query_size = min(query_size, len(train_unlabeled_inds))
+
+            confs_to_fix = confs_to_fix[:query_size]
+            inds_to_fix = [ind for _, ind in confs_to_fix]
+            inds_to_fix.sort()
+
+            self.accelerator.print(f"Length of inds to fix: {len(inds_to_fix)}")
 
         return inds_to_fix
 

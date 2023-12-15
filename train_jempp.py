@@ -576,7 +576,6 @@ def main(config):
                 f=f,
                 dload_train_unlabeled=dload_train_unlabeled,
                 train_unlabeled_inds=train_unlabeled_inds,
-                n_classes=datamodule.n_classes,
                 query_size=config["query_size"],
             )
             (
