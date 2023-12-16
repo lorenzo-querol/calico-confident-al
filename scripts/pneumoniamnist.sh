@@ -13,7 +13,7 @@ accelerate launch train_jempp.py \
     --l2_weight 0.0 \
     --n_steps 10 \
     --in_steps 5 \
-    --query_size 500 \
+    --query_size 250 \
     --dataset pneumoniamnist \
-    --experiment_type baseline \
-    # --calibrated \
+    --experiment_type active \
+    --calibrated \
