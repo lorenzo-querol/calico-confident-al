@@ -96,7 +96,7 @@ def parse_args():
     parser.add_argument("--clf_only", type=bool, default=False)
     parser.add_argument("--warmup_iters", type=int, default=1000)
     parser.add_argument("--dropout_rate", type=float, default=0.0)
-    parser.add_argument("--sigma", type=float, default=0.03)
+    parser.add_argument("--sigma", type=float, default=3e-2)
     parser.add_argument("--weight_decay", type=float, default=4e-4)
     parser.add_argument("--uncond", type=bool, action="store_true", default=True)
     parser.add_argument("--buffer_size", type=int, default=10000)
