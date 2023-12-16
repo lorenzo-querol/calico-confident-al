@@ -35,7 +35,7 @@ from tqdm import tqdm
 from DataModule import DataModule
 from ExpUtils import *
 from models.JEM import get_model_and_buffer
-from utils import Hamiltonian, load_config
+from utils import Hamiltonian, load_config, parse_args
 
 conditionals = []
 
@@ -617,16 +617,8 @@ if __name__ == "__main__":
     t.backends.cudnn.enabled = True
     t.backends.cudnn.deterministic = True
 
-    parser = argparse.ArgumentParser("Active Learning with JEM++")
-    parser.add_argument("--model_config", type=str, default="configs/jempp_hparams.yml", help="Path to the config file.")
-    parser.add_argument("--dataset_config", type=str, default="configs/cifar10.yml", help="Path to the config file.")
-    parser.add_argument("--logging_config", type=str, default="configs/logging.yml", help="Path to the config file.")
-    args = parser.parse_args()
-
-    model_config = load_config(Path(args.model_config))
-    dataset_config = load_config(Path(args.dataset_config))
-    logging_config = load_config(Path(args.logging_config))
-    config = {**model_config, **dataset_config, **logging_config}
+    args = parse_args()
+    config = vars(args)
 
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})

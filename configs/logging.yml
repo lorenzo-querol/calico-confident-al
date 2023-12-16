@@ -1,4 +1,0 @@
-log_dir: "./runs"
-ckpt_every_n_epochs: null
-sample_every_n_epochs: 10
-enable_tracking: true

@@ -8,6 +8,7 @@ import torch.nn as nn
 import torchvision as tv
 import yaml
 from torch.nn.modules.loss import _Loss
+import argparse
 
 
 class Hamiltonian(_Loss):
@@ -67,3 +68,52 @@ def eval_classification(f, dload, set_name, epoch, args=None, print=None):
     loss = np.mean(losses)
 
     return correct, loss
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    # Arguments without default values
+    parser.add_argument("--model", type=str)
+    parser.add_argument("--lr", type=float)
+    parser.add_argument("--optimizer", type=str)
+    parser.add_argument("--norm", type=str, choices=["none", "batch"])
+    parser.add_argument("--decay_epochs", nargs="+", type=int)
+    parser.add_argument("--p_x_weight", type=float)
+    parser.add_argument("--p_y_x_weight", type=float)
+    parser.add_argument("--l2_weight", type=float)
+    parser.add_argument("--n_steps", type=int)
+    parser.add_argument("--in_steps", type=int)
+    parser.add_argument("--experiment_type", type=str)
+    parser.add_argument("--query_size", type=int)
+    parser.add_argument("--dataset", type=str)
+    parser.add_argument("--calibrated", action="store_true")
+
+    # Arguments with default values
+    parser.add_argument("--decay_rate", type=float, default=0.2)
+    parser.add_argument("--n_epochs", type=int, default=150)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--clf_only", type=bool, default=False)
+    parser.add_argument("--warmup_iters", type=int, default=1000)
+    parser.add_argument("--dropout_rate", type=float, default=0.0)
+    parser.add_argument("--sigma", type=float, default=0.03)
+    parser.add_argument("--weight_decay", type=float, default=4e-4)
+    parser.add_argument("--uncond", type=bool, action="store_true", default=True)
+    parser.add_argument("--buffer_size", type=int, default=10000)
+    parser.add_argument("--reinit_freq", type=float, default=0.05)
+    parser.add_argument("--sgld_lr", type=float, default=0.0)
+    parser.add_argument("--sgld_std", type=int, default=0)
+    parser.add_argument("--pyld_lr", type=float, default=0.2)
+    parser.add_argument("--eps", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--data_root", type=str, default="data")
+    parser.add_argument("--labels_per_class", type=int, default=0)
+    parser.add_argument("--log_dir", type=str, default="./runs")
+    parser.add_argument("--experiment_name", type=str, default=None)
+    parser.add_argument("--ckpt_every_n_epochs", type=int, default=None)
+    parser.add_argument("--sample_every_n_epochs", type=int, default=10)
+    parser.add_argument("--enable_tracking", type=bool, default=True)
+
+    args = parser.parse_args()
+
+    return args

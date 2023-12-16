@@ -1,6 +1,0 @@
-experiment_type: active
-calibrated: true
-experiment_name: 2023-12-11_11-56-14_bloodmnist # main experiment name
-dataset: bloodmnist
-labels_per_class: 100
-query_size: 500
