@@ -541,7 +541,7 @@ def main(config):
         )
 
         if config["enable_tracking"]:
-            accelerator.init_trackers(project_name="JEM", init_kwargs={"wandb": logger_kwargs})
+            accelerator.init_trackers(project_name="JEM", config=config, init_kwargs={"wandb": logger_kwargs})
 
         """---TRAINING---"""
         f, best_ckpt_path = train_model(

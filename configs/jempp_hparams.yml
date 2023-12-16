@@ -24,7 +24,7 @@ sigma: 0.03
 weight_decay: 0.0004
 
 # EBM specific
-n_steps: 10
+n_steps: 20
 in_steps: 5
 width: 10
 depth: 28
