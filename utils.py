@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 from typing import Dict
 
@@ -8,7 +9,6 @@ import torch.nn as nn
 import torchvision as tv
 import yaml
 from torch.nn.modules.loss import _Loss
-import argparse
 
 
 class Hamiltonian(_Loss):
@@ -33,7 +33,9 @@ def sqrt(x):
 
 
 def plot(p, x):
-    return tv.utils.save_image(t.clamp(x, -1, 1), p, normalize=True, nrow=sqrt(x.size(0)))
+    return tv.utils.save_image(
+        t.clamp(x, -1, 1), p, normalize=True, nrow=sqrt(x.size(0))
+    )
 
 
 def accuracy(output, target, topk=(1,)):
@@ -90,6 +92,8 @@ def parse_args():
     parser.add_argument("--calibrated", action="store_true")
 
     # Arguments with default values
+    parser.add_argument("--width", type=int, default=10)
+    parser.add_argument("--depth", type=int, default=28)
     parser.add_argument("--decay_rate", type=float, default=0.2)
     parser.add_argument("--n_epochs", type=int, default=150)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -98,7 +102,6 @@ def parse_args():
     parser.add_argument("--dropout_rate", type=float, default=0.0)
     parser.add_argument("--sigma", type=float, default=3e-2)
     parser.add_argument("--weight_decay", type=float, default=4e-4)
-    parser.add_argument("--uncond", type=bool, action="store_true", default=True)
     parser.add_argument("--buffer_size", type=int, default=10000)
     parser.add_argument("--reinit_freq", type=float, default=0.05)
     parser.add_argument("--sgld_lr", type=float, default=0.0)

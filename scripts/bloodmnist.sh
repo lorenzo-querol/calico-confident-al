@@ -15,5 +15,5 @@ accelerate launch train_jempp.py \
     --in_steps 5 \
     --query_size 500 \
     --dataset bloodmnist \
-    --experiment_type baseline \
-    # --calibrated \
+    --experiment_type active \
+    --calibrated \
