@@ -16,4 +16,5 @@ accelerate launch train_jempp.py \
     --query_size 250 \
     --dataset pneumoniamnist \
     --experiment_type active \
+    --experiment_name '2023-12-17_00-52-55_pneumoniamnist' \
     --calibrated \
