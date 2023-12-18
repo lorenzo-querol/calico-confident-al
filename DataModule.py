@@ -76,13 +76,30 @@ class DataModule:
             if self.dataset == "svhn":
                 SVHN(root=self.data_root, transform=None, split=split, download=True)
             elif self.dataset == "cifar10":
-                CIFAR10(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
+                CIFAR10(
+                    root=self.data_root,
+                    transform=None,
+                    train=True if split == "train" else False,
+                    download=True,
+                )
             elif self.dataset == "cifar100":
-                CIFAR100(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
-            elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
+                CIFAR100(
+                    root=self.data_root,
+                    transform=None,
+                    train=True if split == "train" else False,
+                    download=True,
+                )
+            elif self.dataset in [
+                "bloodmnist",
+                "organcmnist",
+                "dermamnist",
+                "pneumoniamnist",
+            ]:
                 info = medmnist.INFO[self.dataset]
                 DataClass = getattr(medmnist, info["python_class"])
-                DataClass(root=self.data_root, transform=None, split=split, download=True)
+                DataClass(
+                    root=self.data_root, transform=None, split=split, download=True
+                )
             else:
                 raise ValueError(f"Dataset {self.dataset} not supported.")
 
@@ -92,7 +109,9 @@ class DataModule:
             self.n_classes = 10
 
             transform = self.get_transforms(train=train, augment=augment)
-            dataset = CIFAR10(root=self.data_root, transform=transform, train=train, download=False)
+            dataset = CIFAR10(
+                root=self.data_root, transform=transform, train=train, download=False
+            )
             self.classnames = dataset.classes
 
             return dataset
@@ -102,7 +121,9 @@ class DataModule:
             self.n_classes = 100
 
             transform = self.get_transforms(train=train, augment=augment)
-            dataset = CIFAR100(root=self.data_root, transform=transform, train=train, download=False)
+            dataset = CIFAR100(
+                root=self.data_root, transform=transform, train=train, download=False
+            )
             self.classnames = dataset.classes
 
             return dataset
@@ -112,12 +133,19 @@ class DataModule:
             self.n_classes = 10
 
             transform = self.get_transforms(train=train, augment=augment)
-            dataset = SVHN(root=self.data_root, transform=transform, split=split, download=False)
+            dataset = SVHN(
+                root=self.data_root, transform=transform, split=split, download=False
+            )
             self.classnames = dataset.classes
 
             return dataset
 
-        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
+        elif self.dataset in [
+            "bloodmnist",
+            "organcmnist",
+            "dermamnist",
+            "pneumoniamnist",
+        ]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]
@@ -125,22 +153,39 @@ class DataModule:
             self.img_shape = (info["n_channels"], 28, 28)
 
             transform = self.get_transforms(train=train, augment=augment)
-            dataset = DataClass(root=self.data_root, split=split, transform=transform, download=False)
+            dataset = DataClass(
+                root=self.data_root, split=split, transform=transform, download=False
+            )
 
             self.classnames = [classnames[str(i)] for i in range(len(classnames))]
             self.n_classes = len(classnames)
 
             return dataset
 
-    def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = True, train: bool = False):
+    def create_dataloader(
+        self, dataset, shuffle: bool = True, drop_last: bool = True, train: bool = False
+    ):
         return DataLoader(
-            dataset, batch_size=self.batch_size if train else 1000, shuffle=shuffle, num_workers=0, drop_last=drop_last, pin_memory=True
+            dataset,
+            batch_size=self.batch_size if train else 1000,
+            shuffle=shuffle,
+            num_workers=0,
+            drop_last=drop_last,
+            pin_memory=True,
         )
 
     def prepare_ddp(self):
         """Prepare dataloaders for Distributed Data Parallel (DDP)."""
-        self.dload_train, self.dload_train_labeled, self.dload_train_unlabeled, self.dload_valid = self.accelerator.prepare(
-            self.dload_train, self.dload_train_labeled, self.dload_train_unlabeled, self.dload_valid
+        (
+            self.dload_train,
+            self.dload_train_labeled,
+            self.dload_train_unlabeled,
+            self.dload_valid,
+        ) = self.accelerator.prepare(
+            self.dload_train,
+            self.dload_train_labeled,
+            self.dload_train_unlabeled,
+            self.dload_valid,
         )
 
     def get_data(
@@ -160,7 +205,9 @@ class DataModule:
 
         """Semi-Supervised Learning"""
         train_indices = np.array(self.all_train_indices)
-        train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
+        train_labels = np.array(
+            [np.squeeze(self.full_train[ind][1]) for ind in train_indices]
+        )
 
         if start_iter:
             if self.labels_per_class > 0 and sampling_method == None:
@@ -169,14 +216,22 @@ class DataModule:
                 self.train_unlabeled_indices = []
 
                 for i in range(self.n_classes):
-                    self.train_labeled_indices.extend(train_indices[train_labels == i][: self.labels_per_class])
-                    self.train_unlabeled_indices.extend(train_indices[train_labels == i][self.labels_per_class :])
+                    self.train_labeled_indices.extend(
+                        train_indices[train_labels == i][: self.labels_per_class]
+                    )
+                    self.train_unlabeled_indices.extend(
+                        train_indices[train_labels == i][self.labels_per_class :]
+                    )
 
             elif sampling_method == "random" and init_size > 0:
                 """Random sampling"""
                 init_size = min(init_size, len(train_indices))
-                self.train_labeled_indices = np.random.choice(train_indices, init_size, replace=False)
-                self.train_unlabeled_indices = np.setdiff1d(train_indices, self.train_labeled_indices)
+                self.train_labeled_indices = np.random.choice(
+                    train_indices, init_size, replace=False
+                )
+                self.train_unlabeled_indices = np.setdiff1d(
+                    train_indices, self.train_labeled_indices
+                )
 
             else:
                 """Use all training data"""
@@ -186,24 +241,52 @@ class DataModule:
             if sampling_method == "random":
                 """Random sampling"""
                 init_size = min(init_size, len(train_indices))
-                self.train_labeled_indices = np.random.choice(train_indices, init_size, replace=False)
-                self.train_unlabeled_indices = np.setdiff1d(train_indices, self.train_labeled_indices)
+                self.train_labeled_indices = np.random.choice(
+                    train_indices, init_size, replace=False
+                )
+                self.train_unlabeled_indices = np.setdiff1d(
+                    train_indices, self.train_labeled_indices
+                )
             else:
-                self.train_labeled_indices = np.append(self.train_labeled_indices, indices_to_fix)
-                indices = np.argwhere(np.isin(self.train_unlabeled_indices, indices_to_fix))
-                self.train_unlabeled_indices = np.delete(self.train_unlabeled_indices, indices)
+                self.train_labeled_indices = np.append(
+                    self.train_labeled_indices, indices_to_fix
+                )
+                indices = np.argwhere(
+                    np.isin(self.train_unlabeled_indices, indices_to_fix)
+                )
+                self.train_unlabeled_indices = np.delete(
+                    self.train_unlabeled_indices, indices
+                )
 
-        self.accelerator.print(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
-        self.accelerator.print(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
+        self.accelerator.print(
+            f"Current Labeled Train Indices: {len(self.train_labeled_indices)}"
+        )
+        self.accelerator.print(
+            f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}"
+        )
 
-        self.labeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_labeled_indices)
-        self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
+        self.labeled = Subset(
+            self._dataset_function("train", train=True, augment=True),
+            indices=self.train_labeled_indices,
+        )
+        self.unlabeled = Subset(
+            self._dataset_function("train", train=False, augment=False),
+            indices=self.train_unlabeled_indices,
+        )
         self.valid = self._dataset_function("val", train=False, augment=False)
 
         self.dload_train = self.create_dataloader(self.full_train, train=True)
-        self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, drop_last=False, train=True))
-        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, drop_last=False) if len(self.train_unlabeled_indices) > 0 else None
-        self.dload_valid = self.create_dataloader(self.valid, shuffle=False, drop_last=False)
+        self.dload_train_labeled = cycle(
+            self.create_dataloader(self.labeled, drop_last=False, train=True)
+        )
+        self.dload_train_unlabeled = (
+            self.create_dataloader(self.unlabeled, drop_last=False)
+            if len(self.train_unlabeled_indices) > 0
+            else None
+        )
+        self.dload_valid = self.create_dataloader(
+            self.valid, shuffle=False, drop_last=False
+        )
 
         if t.cuda.device_count() > 1:
             self.prepare_ddp()
@@ -219,19 +302,34 @@ class DataModule:
 
     def get_test_data(self):
         self.test = self._dataset_function("test", train=False, augment=False)
-        self.dload_test = self.create_dataloader(self.test, shuffle=False, drop_last=False)
+        self.dload_test = self.create_dataloader(
+            self.test, shuffle=False, drop_last=False
+        )
 
         if t.cuda.device_count() > 1:
             self.dload_test = self.accelerator.prepare(self.dload_test)
 
         return self.dload_test
 
-    def query_samples(self, f: nn.Module, dload_train_unlabeled: DataLoader, train_unlabeled_inds: list[int], query_size: int):
+    def query_samples(
+        self,
+        f: nn.Module,
+        dload_train_unlabeled: DataLoader,
+        train_unlabeled_inds: list[int],
+        query_size: int,
+    ):
         confs, confs_to_fix = [], []
 
         with t.no_grad():
-            for i, (x_p_d, y_p_d) in enumerate(tqdm(dload_train_unlabeled, disable=not self.accelerator.is_main_process)):
-                x_p_d, y_p_d = x_p_d.to(self.accelerator.device), y_p_d.to(self.accelerator.device).squeeze().long()
+            for i, (x_p_d, y_p_d) in enumerate(
+                tqdm(
+                    dload_train_unlabeled, disable=not self.accelerator.is_main_process
+                )
+            ):
+                x_p_d, y_p_d = (
+                    x_p_d.to(self.accelerator.device),
+                    y_p_d.to(self.accelerator.device).squeeze().long(),
+                )
                 logits = self.accelerator.unwrap_model(f).classify(x_p_d)
 
                 confs.extend(nn.functional.softmax(logits, dim=1).cpu().numpy())
@@ -258,7 +356,10 @@ class DataModule:
         return inds_to_fix
 
     def get_class_distribution(self):
-        class_labels = [self.classnames[self.full_train[idx][1][0]] for idx in self.train_labeled_indices]
+        class_labels = [
+            self.classnames[self.full_train[idx][1][0]]
+            for idx in self.train_labeled_indices
+        ]
         num_samples_added_per_class = defaultdict(int)
 
         for label in class_labels:

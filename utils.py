@@ -115,7 +115,7 @@ def parse_args():
     parser.add_argument("--experiment_name", type=str, default=None)
     parser.add_argument("--ckpt_every_n_epochs", type=int, default=None)
     parser.add_argument("--sample_every_n_epochs", type=int, default=10)
-    parser.add_argument("--enable_tracking", type=bool, default=True)
+    parser.add_argument("--enable_tracking", action="store_true")
 
     args = parser.parse_args()
 

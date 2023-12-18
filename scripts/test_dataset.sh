@@ -2,7 +2,9 @@
 
 export CUDA_VISIBLE_DEVICES="0,1,2,3"
 
-accelerate launch train_jempp.py \
+for i in {5..5}
+do
+accelerate launch test_jempp.py \
     --model yopo \
     --lr 0.0001 \
     --optimizer adam \
@@ -15,9 +17,9 @@ accelerate launch train_jempp.py \
     --in_steps 5 \
     --query_size 500 \
     --dataset bloodmnist \
-    --experiment_type active \
+    --experiment_type baseline \
     --experiment_name "2023-12-17_00-53-57_bloodmnist" \
+    --seed $i \
     --enable_tracking \
-    --calibrated \
-
-
+    # --calibrated \
+done
