@@ -1,4 +1,6 @@
 import argparse
+import os
+import time
 from pathlib import Path
 from typing import Dict
 
@@ -33,9 +35,7 @@ def sqrt(x):
 
 
 def plot(p, x):
-    return tv.utils.save_image(
-        t.clamp(x, -1, 1), p, normalize=True, nrow=sqrt(x.size(0))
-    )
+    return tv.utils.save_image(t.clamp(x, -1, 1), p, normalize=True, nrow=sqrt(x.size(0)))
 
 
 def accuracy(output, target, topk=(1,)):
@@ -120,3 +120,26 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
+
+def get_experiment_name(dataset: str, experiment_name: str, **config):
+    return f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_{dataset}" if experiment_name is None else experiment_name
+
+
+def get_logger_kwargs(experiment_name: str, experiment_type: str, seed: int, **config):
+    run_name = f"test_{experiment_type}_seed_{seed}"
+
+    logger_kwargs = {
+        "group": experiment_name,
+        "name": run_name,
+    }
+
+    return logger_kwargs
+
+
+def get_directories(log_dir: str, experiment_name: str, **config):
+    ckpt_dir = os.path.join(log_dir, experiment_name, "checkpoints")
+    samples_dir = os.path.join(log_dir, experiment_name, "samples")
+    test_dir = os.path.join(log_dir, experiment_name, "test")
+
+    return ckpt_dir, samples_dir, test_dir

@@ -63,3 +63,23 @@ def get_model_and_buffer(accelerator: Accelerator, datamodule: DataModule, buffe
         f = accelerator.prepare(f)
 
     return f, init_random(datamodule.img_shape, buffer_size)
+
+
+def get_optimizer(accelerator: Accelerator, f: nn.Module, load_path: str = None, **config):
+    """Initialize optimizer"""
+    params = f.class_output.parameters() if config["clf_only"] else f.parameters()
+
+    if config["optimizer"] == "adam":
+        optim = t.optim.Adam(params, config["lr"], betas=(0.9, 0.999), weight_decay=config["weight_decay"])
+    elif config["optimizer"] == "sgd":
+        optim = t.optim.SGD(params, config["lr"], momentum=0.9, weight_decay=config["weight_decay"])
+    else:
+        raise NotImplementedError(f"Optimizer {config['optimizer']} not implemented.")
+
+    if load_path is not None:
+        optim.load_state_dict(t.load(load_path)["optimizer_state_dict"])
+
+    if t.cuda.device_count() > 1:
+        optim = accelerator.prepare(optim)
+
+    return optim
