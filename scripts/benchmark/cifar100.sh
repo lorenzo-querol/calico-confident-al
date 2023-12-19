@@ -1,10 +1,8 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES="3"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 
-for seed_num in {1..5}
-do
-python test_jempp.py \
+accelerate launch train_jempp.py \
     --model yopo \
     --lr 0.0001 \
     --optimizer adam \
@@ -16,11 +14,9 @@ python test_jempp.py \
     --l2_weight 0.0 \
     --n_steps 10 \
     --in_steps 5 \
-    --query_size 1000 \
-    --dataset pneumoniamnist \
-    --experiment_type baseline \
-    --experiment_name "pneumoniamnist" \
+    --query_size 2500 \
+    --dataset cifar100 \
+    --experiment_type active \
+    --experiment_name cifar100_epoch_50 \
+    --enable_tracking \
     --calibrated \
-    --seed $seed_num 
-    # --enable_tracking \
-done

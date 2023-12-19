@@ -108,7 +108,7 @@ def parse_args():
     parser.add_argument("--sgld_std", type=int, default=0)
     parser.add_argument("--pyld_lr", type=float, default=0.2)
     parser.add_argument("--eps", type=int, default=1)
-    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=2)
     parser.add_argument("--data_root", type=str, default="data")
     parser.add_argument("--labels_per_class", type=int, default=0)
     parser.add_argument("--log_dir", type=str, default="./runs")
@@ -116,6 +116,8 @@ def parse_args():
     parser.add_argument("--ckpt_every_n_epochs", type=int, default=None)
     parser.add_argument("--sample_every_n_epochs", type=int, default=10)
     parser.add_argument("--enable_tracking", action="store_true")
+
+    parser.add_argument("--run_once", action="store_true")
 
     args = parser.parse_args()
 
@@ -137,9 +139,9 @@ def get_logger_kwargs(experiment_name: str, experiment_type: str, seed: int, **c
     return logger_kwargs
 
 
-def get_directories(log_dir: str, experiment_name: str, **config):
+def get_directories(log_dir: str, experiment_name: str, seed: int, **config):
     ckpt_dir = os.path.join(log_dir, experiment_name, "checkpoints")
     samples_dir = os.path.join(log_dir, experiment_name, "samples")
-    test_dir = os.path.join(log_dir, experiment_name, "test")
+    test_dir = os.path.join(log_dir, experiment_name, "test", f"seed_{seed}")
 
     return ckpt_dir, samples_dir, test_dir

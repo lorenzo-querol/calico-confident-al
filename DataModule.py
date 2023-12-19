@@ -106,7 +106,11 @@ class DataModule:
             self.img_shape = (3, 32, 32)
             self.n_classes = 10
 
-            transform = self.get_transforms(train=train, augment=augment)
+            if split == "val":
+                transform = self.get_transforms(train=False, augment=False)
+            else:
+                transform = self.get_transforms(train=train, augment=augment)
+
             dataset = CIFAR10(root=self.data_root, transform=transform, train=train, download=False)
             self.classnames = dataset.classes
 
@@ -115,6 +119,11 @@ class DataModule:
         elif self.dataset == "cifar100":
             self.img_shape = (3, 32, 32)
             self.n_classes = 100
+
+            if split == "val":
+                transform = self.get_transforms(train=False, augment=False)
+            else:
+                transform = self.get_transforms(train=train, augment=augment)
 
             transform = self.get_transforms(train=train, augment=augment)
             dataset = CIFAR100(root=self.data_root, transform=transform, train=train, download=False)
@@ -125,6 +134,11 @@ class DataModule:
         elif self.dataset == "svhn":
             self.img_shape = (3, 32, 32)
             self.n_classes = 10
+
+            if split == "val":
+                transform = self.get_transforms(train=False, augment=False)
+            else:
+                transform = self.get_transforms(train=train, augment=augment)
 
             transform = self.get_transforms(train=train, augment=augment)
             dataset = SVHN(root=self.data_root, transform=transform, split=split, download=False)
@@ -195,12 +209,24 @@ class DataModule:
         train_indices = np.array(self.all_train_indices)
         train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
 
+        # Take out 20% of the labeled data for validation
+        if self.dataset in ["cifar10", "cifar100", "svhn"]:
+            num_train = len(self.all_train_indices)
+            num_val = int(num_train * 0.2)  # 20% for validation
+            num_train = num_train - num_val
+
+            # Create a random permutation of the indices
+            perm = t.randperm(num_train + num_val)
+
+            # Split the indices into training and validation indices
+            self.train_labeled_indices = perm[:num_train].tolist()
+            self.val_indices = perm[num_train:].tolist()
+
+            train_indices = np.array(self.train_labeled_indices)
+            train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
+
         if start_iter:
             if self.labels_per_class > 0 and sampling_method == None:
-                """Equal number of samples per class"""
-                self.train_labeled_indices = []
-                self.train_unlabeled_indices = []
-
                 for i in range(self.n_classes):
                     self.train_labeled_indices.extend(train_indices[train_labels == i][: self.labels_per_class])
                     self.train_unlabeled_indices.extend(train_indices[train_labels == i][self.labels_per_class :])
@@ -234,7 +260,12 @@ class DataModule:
             indices=self.train_labeled_indices,
         )
         self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
-        self.valid = self._dataset_function("val", train=False, augment=False)
+
+        if self.dataset in ["cifar10", "cifar100", "svhn"]:
+            # train is set to True here since we are getting the validation set from the training set
+            self.valid = Subset(self._dataset_function("val", train=True, augment=False), indices=self.val_indices)
+        else:
+            self.valid = self._dataset_function("val", train=False, augment=False)
 
         self.dload_train = self.create_dataloader(self.full_train, train=True)
         self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, drop_last=False, train=True))
@@ -256,22 +287,14 @@ class DataModule:
     def get_test_data(self):
         self.full_train = self._dataset_function("train", train=True, augment=False)
         self.test = self._dataset_function("test", train=False, augment=False)
-        self.dload_test = self.create_dataloader(self.test, shuffle=False, drop_last=False)
-
-        if t.cuda.device_count() > 1:
-            self.dload_test = self.accelerator.prepare(self.dload_test)
+        self.dload_test = self.create_dataloader(self.test, shuffle=True, drop_last=False)
 
         return self.dload_test
 
-    def query_samples(
-        self,
-        f: nn.Module,
-        dload_train_unlabeled: DataLoader,
-        train_unlabeled_inds: list[int],
-        query_size: int,
-    ):
+    def query_samples(self, f: nn.Module, dload_train_unlabeled: DataLoader, train_unlabeled_inds: list[int], query_size: int):
         confs, confs_to_fix = [], []
 
+        f.eval()
         with t.no_grad():
             for i, (x_p_d, y_p_d) in enumerate(tqdm(dload_train_unlabeled, disable=not self.accelerator.is_main_process)):
                 x_p_d, y_p_d = (

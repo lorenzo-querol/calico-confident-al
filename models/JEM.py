@@ -1,11 +1,10 @@
 import torch as t
 import torch.nn as nn
+from accelerate import Accelerator
+
 from DataModule import DataModule
 from models import wideresnet
 from models.WideResNetYOPO import WideResNetYOPO
-
-
-from accelerate import Accelerator
 
 
 class F(nn.Module):

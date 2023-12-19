@@ -77,7 +77,10 @@ def init_from_centers(device, datamodule: DataModule, buffer_size: int, load_pat
     for i in range(n_classes):
         mean = centers[i].to(device)
         cov = covs[i].to(device)
-        dist = MultivariateNormal(mean, covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(img_shape))).to(device))
+        dist = MultivariateNormal(
+            mean,
+            covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(img_shape))).to(device),
+        )
         buffer.append(dist.sample((bs // n_classes,)).view((bs // n_classes,) + img_shape).cpu())
         conditionals.append(dist)
 
@@ -103,7 +106,22 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
     return samples.to("cuda"), inds
 
 
-def sample_q(f, accelerator, datamodule, replay_buffer, batch_size, n_steps, in_steps, sgld_std, sgld_lr, pyld_lr, eps, y=None, save=True, **config):
+def sample_q(
+    f,
+    accelerator,
+    datamodule,
+    replay_buffer,
+    batch_size,
+    n_steps,
+    in_steps,
+    sgld_std,
+    sgld_lr,
+    pyld_lr,
+    eps,
+    y=None,
+    save=True,
+    **config,
+):
     bs = batch_size
 
     init_sample, buffer_inds = sample_p_0(replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config)
@@ -226,7 +244,11 @@ def train_model(
         epoch_loss_l2 = 0.0
         loss_p_x = 0.0
         loss_l2 = 0.0
-        progress_bar = tqdm(dload_train, desc=(f"Epoch {epoch}"), disable=not accelerator.is_main_process)
+        progress_bar = tqdm(
+            dload_train,
+            desc=(f"Epoch {epoch}"),
+            disable=not accelerator.is_main_process,
+        )
 
         """---TRAINING---"""
 
@@ -239,7 +261,10 @@ def train_model(
                     param_group["lr"] = lr
 
             x_lab, y_lab = dload_train_labeled.__next__()
-            x_lab, y_lab = x_lab.to(accelerator.device), y_lab.to(accelerator.device).squeeze().long()
+            x_lab, y_lab = (
+                x_lab.to(accelerator.device),
+                y_lab.to(accelerator.device).squeeze().long(),
+            )
 
             L = 0.0
 
@@ -290,7 +315,12 @@ def train_model(
             with t.no_grad():
                 logits = accelerator.unwrap_model(f).classify(inputs)
 
-            losses, corrects = accelerator.gather_for_metrics((t.nn.functional.cross_entropy(logits, labels), (logits.max(1)[1] == labels).float()))
+            losses, corrects = accelerator.gather_for_metrics(
+                (
+                    t.nn.functional.cross_entropy(logits, labels),
+                    (logits.max(1)[1] == labels).float(),
+                )
+            )
 
             all_losses.extend(losses)
             all_corrects.extend(corrects)
@@ -310,7 +340,10 @@ def train_model(
                 if not os.path.exists(samples_dir):
                     os.makedirs(samples_dir, exist_ok=True)
 
-                tv.utils.save_image(image, f"{samples_dir}/x_q-epoch={epoch + (config['n_epochs'] * iter_num)}.png")
+                tv.utils.save_image(
+                    image,
+                    f"{samples_dir}/x_q-epoch={epoch + (config['n_epochs'] * iter_num)}.png",
+                )
 
         if config["ckpt_every_n_epochs"] and (epoch + (config["n_epochs"] * iter_num)) % config["ckpt_every_n_epochs"] == 0:
             ckpt_dict = {
@@ -320,7 +353,10 @@ def train_model(
             }
 
             if accelerator.is_main_process:
-                accelerator.save(ckpt_dict, f"{ckpt_dir}/epoch={epoch + (config['n_epochs'] * iter_num)}.ckpt")
+                accelerator.save(
+                    ckpt_dict,
+                    f"{ckpt_dir}/epoch={epoch + (config['n_epochs'] * iter_num)}.ckpt",
+                )
 
         """Check if current valid loss is the best"""
         if val_loss < best_val_loss:
@@ -393,7 +429,13 @@ def train_model(
     return f, best_ckpt_path
 
 
-def test_model(f: nn.Module, accelerator: Accelerator, datamodule: DataModule, dirs: tuple[int, int, int], **config):
+def test_model(
+    f: nn.Module,
+    accelerator: Accelerator,
+    datamodule: DataModule,
+    dirs: tuple[int, int, int],
+    **config,
+):
     _, _, test_dir = dirs
     dload_test = datamodule.get_test_data()
 
@@ -433,7 +475,10 @@ def test_model(f: nn.Module, accelerator: Accelerator, datamodule: DataModule, d
 
     accuracy_per_class = {
         label: correct / total if total > 0 else 0
-        for label, (correct, total) in zip(datamodule.classnames, zip(correct_per_class.values(), total_per_class.values()))
+        for label, (correct, total) in zip(
+            datamodule.classnames,
+            zip(correct_per_class.values(), total_per_class.values()),
+        )
     }
 
     all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
@@ -443,7 +488,11 @@ def test_model(f: nn.Module, accelerator: Accelerator, datamodule: DataModule, d
     calibration_score = ece.measure(all_confs, all_gts)
     pl = diagram.plot(all_confs, all_gts)
 
-    test_metrics = {"test_loss": test_loss, "test_acc": test_acc, "test_ece": calibration_score}
+    test_metrics = {
+        "test_loss": test_loss,
+        "test_acc": test_acc,
+        "test_ece": calibration_score,
+    }
     test_metrics = pd.DataFrame(test_metrics, index=[0])
 
     accuracy_per_class = pd.DataFrame(accuracy_per_class, index=[0])
@@ -476,7 +525,12 @@ def get_optimizer(accelerator: Accelerator, f: nn.Module, load_path: str = None,
     """Initialize optimizer"""
     params = f.class_output.parameters() if config["clf_only"] else f.parameters()
     if config["optimizer"] == "adam":
-        optim = t.optim.Adam(params, config["lr"], betas=(0.9, 0.999), weight_decay=config["weight_decay"])
+        optim = t.optim.Adam(
+            params,
+            config["lr"],
+            betas=(0.9, 0.999),
+            weight_decay=config["weight_decay"],
+        )
     else:
         optim = t.optim.SGD(params, config["lr"], momentum=0.9, weight_decay=config["weight_decay"])
 
@@ -516,10 +570,14 @@ def main(config):
     experiment_name = get_experiment_name(**config)
 
     """Randomly initialize the labeled training pool"""
-    dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_inds, train_unlabeled_inds = datamodule.get_data(
-        sampling_method="random",
-        init_size=config["query_size"],
-    )
+    (
+        dload_train,
+        dload_train_labeled,
+        dload_train_unlabeled,
+        dload_valid,
+        train_labeled_inds,
+        train_unlabeled_inds,
+    ) = datamodule.get_data(sampling_method="random", init_size=config["query_size"])
 
     """For informative initialization"""
     if not os.path.isfile(f"weights/{datamodule.dataset}_cov.pt"):
@@ -559,9 +617,17 @@ def main(config):
             **config,
         )
 
+        if config["run_once"]:
+            break
+
         """Load the best checkpoint"""
         accelerator.print(f"Loading best checkpoint from {best_ckpt_path}.")
-        f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, load_path=best_ckpt_path, **config)
+        f, replay_buffer = get_model_and_buffer(
+            accelerator=accelerator,
+            datamodule=datamodule,
+            load_path=best_ckpt_path,
+            **config,
+        )
 
         # """---TESTING---"""
         # test_model(f=f, accelerator=accelerator, datamodule=datamodule, dirs=dirs, **config)
@@ -591,7 +657,7 @@ def main(config):
                 indices_to_fix=inds_to_fix,
                 start_iter=False,
             )
-        else:
+        elif config["experiment_type"] == "baseline":
             """---BASELINE STEP---"""
             init_size += config["query_size"]
             (
@@ -617,14 +683,11 @@ if __name__ == "__main__":
     t.backends.cudnn.enabled = True
     t.backends.cudnn.deterministic = True
 
-    args = parse_args()
-    config = vars(args)
+    config = vars(parse_args())
 
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
-
-    if not config["calibrated"]:
-        config["p_x_weight"] = 0.0
+    config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
 
     set_seed(config["seed"])
 
