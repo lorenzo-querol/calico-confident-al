@@ -56,7 +56,7 @@ class DataModule:
             ]
 
             if self.dataset == "svhn":
-                final_transform = final_transform[:-2]
+                final_transform = final_transform[:-1]
 
         final_transform.extend(common_transform)
 
@@ -79,19 +79,9 @@ class DataModule:
             if self.dataset == "svhn":
                 SVHN(root=self.data_root, transform=None, split=split, download=True)
             elif self.dataset == "cifar10":
-                CIFAR10(
-                    root=self.data_root,
-                    transform=None,
-                    train=True if split == "train" else False,
-                    download=True,
-                )
+                CIFAR10(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
             elif self.dataset == "cifar100":
-                CIFAR100(
-                    root=self.data_root,
-                    transform=None,
-                    train=True if split == "train" else False,
-                    download=True,
-                )
+                CIFAR100(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
             elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
                 info = medmnist.INFO[self.dataset]
                 DataClass = getattr(medmnist, info["python_class"])
@@ -100,58 +90,19 @@ class DataModule:
                 raise ValueError(f"Dataset {self.dataset} not supported.")
 
     def _dataset_function(self, split: str, train: bool, augment: bool):
-        if self.dataset == "cifar10":
+        if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
             self.img_shape = (3, 32, 32)
-            self.n_classes = 10
+            self.n_classes = 100 if self.dataset == "cifar100" else 10
+            transform = self.get_transforms(train=train, augment=augment)
 
-            if split == "val":
-                transform = self.get_transforms(train=False, augment=False)
-            else:
-                transform = self.get_transforms(train=train, augment=augment)
-
-            other_dataset = OtherDataset("cifar10", root=self.data_root, split=split, transform=transform, download=False)
+            other_dataset = OtherDataset(self.dataset, root=self.data_root, split=split, transform=transform, download=False)
             dataset = other_dataset.get_dataset()
 
             self.classnames = other_dataset.classes
 
             return dataset
 
-        elif self.dataset == "cifar100":
-            self.img_shape = (3, 32, 32)
-            self.n_classes = 100
-
-            if split == "val":
-                transform = self.get_transforms(train=False, augment=False)
-            else:
-                transform = self.get_transforms(train=train, augment=augment)
-
-            transform = self.get_transforms(train=train, augment=augment)
-            dataset = CIFAR100(root=self.data_root, transform=transform, train=train, download=False)
-            self.classnames = dataset.classes
-
-            return dataset
-
-        elif self.dataset == "svhn":
-            self.img_shape = (3, 32, 32)
-            self.n_classes = 10
-
-            if split == "val":
-                transform = self.get_transforms(train=False, augment=False)
-            else:
-                transform = self.get_transforms(train=train, augment=augment)
-
-            transform = self.get_transforms(train=train, augment=augment)
-            dataset = SVHN(root=self.data_root, transform=transform, split=split, download=False)
-            self.classnames = dataset.classes
-
-            return dataset
-
-        elif self.dataset in [
-            "bloodmnist",
-            "organcmnist",
-            "dermamnist",
-            "pneumoniamnist",
-        ]:
+        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]
@@ -233,7 +184,6 @@ class DataModule:
         # NOTE: Problem is this is with reference to the full train, and not the altered version with 20% off the training data
         self.labeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_labeled_indices)
         self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
-
         self.valid = self._dataset_function("val", train=False, augment=False)
 
         self.dload_train = self.create_dataloader(self.full_train, train=True)
@@ -264,7 +214,6 @@ class DataModule:
         )
 
     def get_test_data(self):
-        self.full_train = self._dataset_function("train", train=True, augment=False)
         self.test = self._dataset_function("test", train=False, augment=False)
         self.dload_test = self.create_dataloader(self.test, shuffle=True, drop_last=False)
 
