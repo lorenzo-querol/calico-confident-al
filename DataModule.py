@@ -11,6 +11,7 @@ from accelerate import Accelerator
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import CIFAR10, CIFAR100, MNIST, SVHN
 from tqdm import tqdm
+from OtherDataset import OtherDataset
 
 
 def cycle(loader):
@@ -28,6 +29,7 @@ class DataModule:
         labels_per_class: int,
         data_root: str,
         dataset: str,
+        query_size: int,
         **config,
     ):
         self.accelerator = accelerator
@@ -36,6 +38,7 @@ class DataModule:
         self.labels_per_class = labels_per_class
         self.data_root = data_root
         self.dataset = dataset
+        self.query_size = query_size
 
     def get_transforms(self, train: bool, augment: bool):
         final_transform = []
@@ -89,12 +92,7 @@ class DataModule:
                     train=True if split == "train" else False,
                     download=True,
                 )
-            elif self.dataset in [
-                "bloodmnist",
-                "organcmnist",
-                "dermamnist",
-                "pneumoniamnist",
-            ]:
+            elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
                 info = medmnist.INFO[self.dataset]
                 DataClass = getattr(medmnist, info["python_class"])
                 DataClass(root=self.data_root, transform=None, split=split, download=True)
@@ -111,8 +109,10 @@ class DataModule:
             else:
                 transform = self.get_transforms(train=train, augment=augment)
 
-            dataset = CIFAR10(root=self.data_root, transform=transform, train=train, download=False)
-            self.classnames = dataset.classes
+            other_dataset = OtherDataset("cifar10", root=self.data_root, split=split, transform=transform, download=False)
+            dataset = other_dataset.get_dataset()
+
+            self.classnames = other_dataset.classes
 
             return dataset
 
@@ -166,16 +166,6 @@ class DataModule:
 
             return dataset
 
-    def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = True, train: bool = False):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size if train else 1000,
-            shuffle=shuffle,
-            num_workers=0,
-            drop_last=drop_last,
-            pin_memory=True,
-        )
-
     def prepare_ddp(self):
         """Prepare dataloaders for Distributed Data Parallel (DDP)."""
         (
@@ -199,31 +189,16 @@ class DataModule:
         init_size: int = None,
         start_iter: bool = True,
     ):
-        self.full_train = self._dataset_function("train", train=True, augment=False)
-
-        self.all_train_indices = list(range(len(self.full_train)))
         self.train_labeled_indices = train_labeled_indices
         self.train_unlabeled_indices = train_unlabeled_indices
+        valid_indices = None
+
+        self.full_train = self._dataset_function("train", train=True, augment=False)
+        self.all_train_indices = list(range(len(self.full_train)))
 
         """Semi-Supervised Learning"""
         train_indices = np.array(self.all_train_indices)
         train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
-
-        # Take out 20% of the labeled data for validation
-        if self.dataset in ["cifar10", "cifar100", "svhn"]:
-            num_train = len(self.all_train_indices)
-            num_val = int(num_train * 0.2)  # 20% for validation
-            num_train = num_train - num_val
-
-            # Create a random permutation of the indices
-            perm = t.randperm(num_train + num_val)
-
-            # Split the indices into training and validation indices
-            self.train_labeled_indices = perm[:num_train].tolist()
-            self.val_indices = perm[num_train:].tolist()
-
-            train_indices = np.array(self.train_labeled_indices)
-            train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
 
         if start_iter:
             if self.labels_per_class > 0 and sampling_method == None:
@@ -255,21 +230,15 @@ class DataModule:
         self.accelerator.print(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
         self.accelerator.print(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
 
-        self.labeled = Subset(
-            self._dataset_function("train", train=True, augment=True),
-            indices=self.train_labeled_indices,
-        )
+        # NOTE: Problem is this is with reference to the full train, and not the altered version with 20% off the training data
+        self.labeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_labeled_indices)
         self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
 
-        if self.dataset in ["cifar10", "cifar100", "svhn"]:
-            # train is set to True here since we are getting the validation set from the training set
-            self.valid = Subset(self._dataset_function("val", train=True, augment=False), indices=self.val_indices)
-        else:
-            self.valid = self._dataset_function("val", train=False, augment=False)
+        self.valid = self._dataset_function("val", train=False, augment=False)
 
         self.dload_train = self.create_dataloader(self.full_train, train=True)
         self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, drop_last=False, train=True))
-        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, drop_last=False) if len(self.train_unlabeled_indices) > 0 else None
+        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled) if len(self.train_unlabeled_indices) > 0 else None
         self.dload_valid = self.create_dataloader(self.valid, shuffle=False, drop_last=False)
 
         if t.cuda.device_count() > 1:
@@ -284,6 +253,16 @@ class DataModule:
             self.train_unlabeled_indices,
         )
 
+    def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = True, train: bool = False):
+        return DataLoader(
+            dataset,
+            batch_size=self.batch_size if train else self.query_size,
+            shuffle=shuffle,
+            num_workers=0,
+            drop_last=drop_last,
+            pin_memory=True,
+        )
+
     def get_test_data(self):
         self.full_train = self._dataset_function("train", train=True, augment=False)
         self.test = self._dataset_function("test", train=False, augment=False)
@@ -295,12 +274,10 @@ class DataModule:
         confs, confs_to_fix = [], []
 
         f.eval()
+        progress_bar = tqdm(dload_train_unlabeled, disable=not self.accelerator.is_main_process)
         with t.no_grad():
-            for i, (x_p_d, y_p_d) in enumerate(tqdm(dload_train_unlabeled, disable=not self.accelerator.is_main_process)):
-                x_p_d, y_p_d = (
-                    x_p_d.to(self.accelerator.device),
-                    y_p_d.to(self.accelerator.device).squeeze().long(),
-                )
+            for i, (x_p_d, y_p_d) in enumerate(progress_bar):
+                x_p_d, y_p_d = x_p_d.to(self.accelerator.device), y_p_d.to(self.accelerator.device).squeeze().long()
                 logits = self.accelerator.unwrap_model(f).classify(x_p_d)
 
                 confs.extend(nn.functional.softmax(logits, dim=1).cpu().numpy())
