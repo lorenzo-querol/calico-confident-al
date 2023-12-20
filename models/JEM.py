@@ -69,7 +69,7 @@ def get_optimizer(accelerator: Accelerator, f: nn.Module, load_path: str = None,
     params = f.class_output.parameters() if config["clf_only"] else f.parameters()
 
     if config["optimizer"] == "adam":
-        optim = t.optim.Adam(params, config["lr"], betas=(0.9, 0.999), weight_decay=config["weight_decay"])
+        optim = t.optim.AdamW(params, config["lr"])
     elif config["optimizer"] == "sgd":
         optim = t.optim.SGD(params, config["lr"], momentum=0.9, weight_decay=config["weight_decay"])
     else:
