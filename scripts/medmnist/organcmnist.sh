@@ -7,7 +7,7 @@ accelerate launch train_jempp.py \
     --lr 0.0001 \
     --optimizer adam \
     --norm none \
-    --n_epochs 25 \
+    --n_epochs 100 \
     --decay_epochs 50 100 125 \
     --p_x_weight 1.0 \
     --p_y_x_weight 1.0 \
@@ -17,6 +17,5 @@ accelerate launch train_jempp.py \
     --query_size 1000 \
     --dataset organcmnist \
     --experiment_type active \
-    --experiment_name "organcmnist_epoch_25" \
     --enable_tracking \
     --calibrated \

@@ -17,6 +17,5 @@ accelerate launch train_jempp.py \
     --query_size 5000 \
     --dataset svhn \
     --experiment_type active \
-    --experiment_name 'svhn_epoch_100' \
     --enable_tracking \
     --calibrated \

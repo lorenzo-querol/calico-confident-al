@@ -688,7 +688,7 @@ if __name__ == "__main__":
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
     config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
-
+    config.update({"experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}'})
     set_seed(config["seed"])
 
     main(config)

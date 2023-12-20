@@ -17,6 +17,5 @@ accelerate launch train_jempp.py \
     --query_size 2500 \
     --dataset mnist \
     --experiment_type active \
-    --experiment_name 'mnist_epoch_100' \
     --enable_tracking \
     --calibrated \

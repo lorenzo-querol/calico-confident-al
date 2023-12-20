@@ -17,6 +17,5 @@ accelerate launch train_jempp.py \
     --query_size 2500 \
     --dataset cifar10 \
     --experiment_type active \
-    --experiment_name cifar10_epoch_100 \
-    --calibrated \
-    --enable_tracking
+    --enable_tracking \
+    --calibrated
