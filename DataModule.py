@@ -76,7 +76,9 @@ class DataModule:
 
     def download_dataset(self, split: str):
         with self.accelerator.main_process_first():
-            if self.dataset == "svhn":
+            if self.dataset == "mnist":
+                MNIST(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
+            elif self.dataset == "svhn":
                 SVHN(root=self.data_root, transform=None, split=split, download=True)
             elif self.dataset == "cifar10":
                 CIFAR10(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)

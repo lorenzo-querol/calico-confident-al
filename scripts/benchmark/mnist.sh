@@ -14,9 +14,9 @@ accelerate launch train_jempp.py \
     --l2_weight 0.0 \
     --n_steps 10 \
     --in_steps 5 \
-    --query_size 5000 \
-    --dataset svhn \
+    --query_size 2500 \
+    --dataset mnist \
     --experiment_type active \
-    --experiment_name 'svhn_epoch_100' \
+    --experiment_name 'mnist_epoch_100' \
     --enable_tracking \
     --calibrated \
