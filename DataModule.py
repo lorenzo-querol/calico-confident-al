@@ -11,6 +11,7 @@ from accelerate import Accelerator
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import CIFAR10, CIFAR100, MNIST, SVHN
 from tqdm import tqdm
+
 from OtherDataset import OtherDataset
 
 
@@ -66,6 +67,16 @@ class DataModule:
         return tr.Compose(final_transform)
 
     def prepare_data(self):
+        if self.accelerator is None:
+            if not os.path.exists(self.data_root):
+                os.makedirs(self.data_root)
+
+            self.download_dataset("train")
+            self.download_dataset("val")
+            self.download_dataset("test")
+
+            return
+
         with self.accelerator.main_process_first():
             if not os.path.exists(self.data_root):
                 os.makedirs(self.data_root)
@@ -75,47 +86,38 @@ class DataModule:
             self.download_dataset("test")
 
     def download_dataset(self, split: str):
-        with self.accelerator.main_process_first():
-            if self.dataset == "mnist":
-                MNIST(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
-            elif self.dataset == "svhn":
-                SVHN(root=self.data_root, transform=None, split=split, download=True)
-            elif self.dataset == "cifar10":
-                CIFAR10(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
-            elif self.dataset == "cifar100":
-                CIFAR100(root=self.data_root, transform=None, train=True if split == "train" else False, download=True)
-            elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
-                info = medmnist.INFO[self.dataset]
-                DataClass = getattr(medmnist, info["python_class"])
-                DataClass(root=self.data_root, transform=None, split=split, download=True)
-            else:
-                raise ValueError(f"Dataset {self.dataset} not supported.")
-
-    def _dataset_function(self, split: str, train: bool, augment: bool):
         if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
+            other_dataset = OtherDataset(self.dataset, root=self.data_root, split=split, transform=None, download=True)
             self.img_shape = (3, 32, 32)
             self.n_classes = 100 if self.dataset == "cifar100" else 10
-            transform = self.get_transforms(train=train, augment=augment)
-
-            other_dataset = OtherDataset(self.dataset, root=self.data_root, split=split, transform=transform, download=False)
-            dataset = other_dataset.get_dataset()
-
             self.classnames = other_dataset.classes
-
-            return dataset
 
         elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]
 
+            DataClass(root=self.data_root, transform=None, split=split, download=True)
             self.img_shape = (info["n_channels"], 28, 28)
-
-            transform = self.get_transforms(train=train, augment=augment)
-            dataset = DataClass(root=self.data_root, split=split, transform=transform, download=False)
-
             self.classnames = [classnames[str(i)] for i in range(len(classnames))]
             self.n_classes = len(classnames)
+
+        else:
+            raise ValueError(f"Dataset {self.dataset} not supported.")
+
+    def _dataset_function(self, split: str, train: bool, augment: bool):
+        transform = self.get_transforms(train=train, augment=augment)
+
+        if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
+            other_dataset = OtherDataset(self.dataset, root=self.data_root, split=split, transform=transform, download=False)
+            dataset = other_dataset.get_dataset()
+
+            return dataset
+
+        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
+            info = medmnist.INFO[self.dataset]
+            DataClass = getattr(medmnist, info["python_class"])
+            dataset = DataClass(root=self.data_root, split=split, transform=transform, download=False)
 
             return dataset
 
@@ -144,7 +146,6 @@ class DataModule:
     ):
         self.train_labeled_indices = train_labeled_indices
         self.train_unlabeled_indices = train_unlabeled_indices
-        valid_indices = None
 
         self.full_train = self._dataset_function("train", train=True, augment=False)
         self.all_train_indices = list(range(len(self.full_train)))
@@ -180,10 +181,13 @@ class DataModule:
                 indices = np.argwhere(np.isin(self.train_unlabeled_indices, indices_to_fix))
                 self.train_unlabeled_indices = np.delete(self.train_unlabeled_indices, indices)
 
-        self.accelerator.print(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
-        self.accelerator.print(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
+        if self.accelerator is None:
+            print(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
+            print(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
+        else:
+            self.accelerator.print(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
+            self.accelerator.print(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
 
-        # NOTE: Problem is this is with reference to the full train, and not the altered version with 20% off the training data
         self.labeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_labeled_indices)
         self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
         self.valid = self._dataset_function("val", train=False, augment=False)

@@ -17,10 +17,10 @@ python test_jempp.py \
     --n_steps 10 \
     --in_steps 5 \
     --query_size 1000 \
-    --dataset pneumoniamnist \
-    --experiment_type baseline \
-    --experiment_name "pneumoniamnist" \
+    --dataset dermamnist \
+    --experiment_type active \
+    --experiment_name "dermamnist_epoch_50" \
     --calibrated \
-    --seed $seed_num 
-    # --enable_tracking \
+    --seed $seed_num
+    # --enable_tracking
 done

@@ -129,6 +129,19 @@ def get_experiment_name(dataset: str, experiment_name: str, **config):
 
 
 def get_logger_kwargs(experiment_name: str, experiment_type: str, seed: int, **config):
+    """
+    Returns a dictionary of keyword arguments to pass to the logger. The logger will log the experiment to the
+    `experiment_name` group and name the run `test_{experiment_type}_seed_{seed}`.
+
+    Params:
+    - experiment_name: The name of the experiment.
+    - experiment_type: The type of experiment (e.g. "jvq").
+    - seed: The seed used for the experiment.
+    - config: The configuration dictionary.
+
+    Return:
+    - A dictionary containing group and name of the project.
+    """
     run_name = f"test_{experiment_type}_seed_{seed}"
 
     logger_kwargs = {

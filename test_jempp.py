@@ -1,23 +1,25 @@
 import os
 from pathlib import Path
+from pkgutil import get_data
+from venv import logger
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch as t
 import torch.nn as nn
-from accelerate import Accelerator
 from accelerate.utils import set_seed
 from netcal.metrics import ECE
 from netcal.presentation import ReliabilityDiagram
 from tqdm import tqdm
 
+import wandb
 from DataModule import DataModule
-from models.JEM import get_model_and_buffer
+from models.JEM import F
 from utils import get_directories, get_experiment_name, get_logger_kwargs, parse_args
 
 
-def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, **config):
+def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled: int):
     dload_test = datamodule.get_test_data()
 
     all_corrects, all_losses = [], []
@@ -56,10 +58,7 @@ def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, **config):
 
     accuracy_per_class = {
         label: correct / total if total > 0 else 0
-        for label, (correct, total) in zip(
-            datamodule.classnames,
-            zip(correct_per_class.values(), total_per_class.values()),
-        )
+        for label, (correct, total) in zip(datamodule.classnames, zip(correct_per_class.values(), total_per_class.values()))
     }
 
     all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
@@ -90,17 +89,10 @@ def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, **config):
     accuracy_per_class.to_csv(f"{test_dir}/accuracy_per_class.csv", index=False)
     class_distribution.to_csv(f"{test_dir}/class_distribution.csv", index=False)
 
-    print(f"Test Loss: {test_loss:.4f} | Test Accuracy: {test_acc:.4f} | ECE: {calibration_score:.4f}")
+    print(f"Test Loss: {test_loss} | Test Accuracy: {test_acc} | ECE: {calibration_score}")
 
-    # if config["enable_tracking"]:
-    #     accelerator.log(
-    #         {
-    #             "num_labeled": num_labeled,
-    #             "test_loss": test_loss,
-    #             "test_acc": test_acc,
-    #             "test_ece": calibration_score,
-    #         }
-    #     )
+    if config["enable_tracking"]:
+        wandb.log({"num_labeled": num_labeled, "test_loss": test_loss, "test_acc": test_acc, "test_ece": calibration_score})
 
 
 def get_ckpts(ckpt_dir: str, experiment_type: str):
@@ -115,7 +107,7 @@ def get_ckpts(ckpt_dir: str, experiment_type: str):
         path = ckpt.split("/")
         experiment_type, num_labeled = path[-2].split("_")
 
-        ckpt_dicts.append({"experiment_type": experiment_type, "path": ckpt, "num_labeled": num_labeled})
+        ckpt_dicts.append({"experiment_type": experiment_type, "path": ckpt, "num_labeled": int(num_labeled)})
 
     ckpt_dicts = sorted(ckpt_dicts, key=lambda x: int(x["num_labeled"]))
 
@@ -123,57 +115,38 @@ def get_ckpts(ckpt_dir: str, experiment_type: str):
 
 
 def main(config):
-    accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None)
-
-    datamodule = DataModule(accelerator=accelerator, **config)
+    datamodule = DataModule(accelerator=None, **config)
     datamodule.prepare_data()
-
-    (
-        dload_train,
-        dload_train_labeled,
-        dload_train_unlabeled,
-        dload_valid,
-        train_labeled_inds,
-        train_unlabeled_inds,
-    ) = datamodule.get_data(sampling_method="random", init_size=config["query_size"])
+    dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_indices, train_unlabeled_indices = datamodule.get_data()
+    device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
     config.update({"experiment_name": get_experiment_name(**config)})
+
     ckpt_dir, _, test_dir = get_directories(**config)
 
-    for ckpt_dict in get_ckpts(ckpt_dir, config["experiment_type"]):
-        if config["enable_tracking"]:
-            logger_kwargs = get_logger_kwargs(**config)
-            init_kwargs = {"wandb": {"tags": ["test", config["experiment_type"]], **logger_kwargs}}
-            accelerator.init_trackers(project_name="JEM", config=config, init_kwargs=init_kwargs)
-
-        """Load the best checkpoint"""
-        accelerator.print(f"Loading best checkpoint from {ckpt_dict['path']}.")
-        f, _ = get_model_and_buffer(
-            accelerator=accelerator,
-            datamodule=datamodule,
-            load_path=ckpt_dict["path"],
-            **config,
-        )
-        f.to(accelerator.device)
-
-        """---TESTING---"""
-        test_model(
-            f=f,
-            datamodule=datamodule,
-            test_dir=f"{test_dir}/{ckpt_dict['experiment_type']}_{ckpt_dict['num_labeled']}",
-            num_labeled=int(ckpt_dict["num_labeled"]),
-            **config,
-        )
+    f = F(n_channels=datamodule.img_shape[0], n_classes=datamodule.n_classes, **config).to(device)
 
     if config["enable_tracking"]:
-        accelerator.end_training()
+        logger_kwargs = get_logger_kwargs(**config)
+        wandb.init(project="JEM", config=config, tags=["test", config["experiment_type"]], **logger_kwargs)
+
+    for ckpt_dict in get_ckpts(ckpt_dir, config["experiment_type"]):
+        experiment_type, path, num_labeled = ckpt_dict.values()
+
+        """Load the best checkpoint"""
+        print(f"Loading best checkpoint from {path}.")
+        f.load_state_dict(t.load(path)["model_state_dict"])
+        f.to("cuda")
+
+        """---TESTING---"""
+        folder_name = f"{test_dir}/{experiment_type}_{num_labeled}"
+        test_model(f=f, datamodule=datamodule, test_dir=folder_name, num_labeled=num_labeled)
+
+    if config["enable_tracking"]:
+        wandb.finish()
 
 
 if __name__ == "__main__":
-    t.backends.cudnn.benchmark = True
-    t.backends.cudnn.enabled = True
-    t.backends.cudnn.deterministic = True
-
     config = vars(parse_args())
     set_seed(config["seed"])
 
