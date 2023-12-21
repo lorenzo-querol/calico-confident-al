@@ -590,7 +590,7 @@ def main(config):
     n_iters = len(datamodule.full_train) // config["query_size"]
     init_size = config["query_size"]
 
-    for i in range(n_iters + 1):
+    for i in range(n_iters):
         logger_kwargs, dirs = init_logger(
             experiment_name=experiment_name,
             experiment_type=config["experiment_type"],
@@ -617,23 +617,8 @@ def main(config):
             **config,
         )
 
-        if config["run_once"]:
-            break
-
-        """Load the best checkpoint"""
-        accelerator.print(f"Loading best checkpoint from {best_ckpt_path}.")
-        f, replay_buffer = get_model_and_buffer(
-            accelerator=accelerator,
-            datamodule=datamodule,
-            load_path=best_ckpt_path,
-            **config,
-        )
-
-        # """---TESTING---"""
-        # test_model(f=f, accelerator=accelerator, datamodule=datamodule, dirs=dirs, **config)
-
-        """Stop if we have reached the maximum number of iterations"""
-        if i == n_iters:
+        if len(train_unlabeled_inds) == 0:
+            accelerator.print("No more unlabeled samples to query.")
             break
 
         if config["experiment_type"] == "active":

@@ -194,7 +194,7 @@ class DataModule:
 
         self.dload_train = self.create_dataloader(self.full_train, train=True)
         self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, drop_last=False, train=True))
-        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled) if len(self.train_unlabeled_indices) > 0 else None
+        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, drop_last=False) if len(self.train_unlabeled_indices) > 0 else None
         self.dload_valid = self.create_dataloader(self.valid, shuffle=False, drop_last=False)
 
         if t.cuda.device_count() > 1:
@@ -212,7 +212,7 @@ class DataModule:
     def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = True, train: bool = False):
         return DataLoader(
             dataset,
-            batch_size=self.batch_size if train else self.query_size,
+            batch_size=self.batch_size if train else 5000,
             shuffle=shuffle,
             num_workers=0,
             drop_last=drop_last,
@@ -229,7 +229,7 @@ class DataModule:
         confs, confs_to_fix = [], []
 
         f.eval()
-        progress_bar = tqdm(dload_train_unlabeled, disable=not self.accelerator.is_main_process)
+        progress_bar = tqdm(dload_train_unlabeled, desc="Predicting", disable=not self.accelerator.is_main_process)
         with t.no_grad():
             for i, (x_p_d, y_p_d) in enumerate(progress_bar):
                 x_p_d, y_p_d = x_p_d.to(self.accelerator.device), y_p_d.to(self.accelerator.device).squeeze().long()
