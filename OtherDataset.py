@@ -1,6 +1,6 @@
 import torch
-from torchvision import datasets
 from torch.utils.data import random_split
+from torchvision import datasets
 
 
 class OtherDataset:
