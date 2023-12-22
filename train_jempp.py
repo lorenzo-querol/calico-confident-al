@@ -35,7 +35,7 @@ from tqdm import tqdm
 from DataModule import DataModule
 from ExpUtils import *
 from models.JEM import get_model_and_buffer
-from utils import Hamiltonian, load_config, parse_args
+from utils import Hamiltonian, parse_args
 
 conditionals = []
 
@@ -106,22 +106,7 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
     return samples.to("cuda"), inds
 
 
-def sample_q(
-    f,
-    accelerator,
-    datamodule,
-    replay_buffer,
-    batch_size,
-    n_steps,
-    in_steps,
-    sgld_std,
-    sgld_lr,
-    pyld_lr,
-    eps,
-    y=None,
-    save=True,
-    **config,
-):
+def sample_q(f, accelerator, datamodule, replay_buffer, batch_size, n_steps, in_steps, sgld_std, sgld_lr, pyld_lr, eps, y=None, save=True, **config):
     bs = batch_size
 
     init_sample, buffer_inds = sample_p_0(replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config)
@@ -189,7 +174,7 @@ def category_mean(dload_train, datamodule):
     im_test, targ_test = t.cat(im_test), t.cat(targ_test)
 
     for i in range(n_classes):
-        if datamodule.dataset in ["cifar10", "cifar100", "svhn"]:
+        if datamodule.dataset in ["cifar10", "cifar100", "svhn", "mnist"]:
             mask = targ_test == i
         else:
             mask = (targ_test == i).squeeze(1)
@@ -244,11 +229,8 @@ def train_model(
         epoch_loss_l2 = 0.0
         loss_p_x = 0.0
         loss_l2 = 0.0
-        progress_bar = tqdm(
-            dload_train,
-            desc=(f"Epoch {epoch}"),
-            disable=not accelerator.is_main_process,
-        )
+
+        progress_bar = tqdm(dload_train, desc=(f"Epoch {epoch}"), disable=not accelerator.is_main_process)
 
         """---TRAINING---"""
 
@@ -366,6 +348,7 @@ def train_model(
 
             if config["enable_tracking"]:
                 accelerator.log({"val_loss": best_val_loss, "val_acc": val_acc})
+
             ckpt_dict = {
                 "model_state_dict": accelerator.unwrap_model(f).state_dict(),
                 "optimizer_state_dict": optim.state_dict(),
@@ -429,108 +412,12 @@ def train_model(
     return f, best_ckpt_path
 
 
-def test_model(
-    f: nn.Module,
-    accelerator: Accelerator,
-    datamodule: DataModule,
-    dirs: tuple[int, int, int],
-    **config,
-):
-    _, _, test_dir = dirs
-    dload_test = datamodule.get_test_data()
-
-    all_corrects, all_losses = [], []
-    all_confs, all_gts = [], []
-    test_loss, test_acc = np.inf, 0.0
-
-    correct_per_class = {label: 0 for label in datamodule.classnames}
-    total_per_class = {label: 0 for label in datamodule.classnames}
-
-    for i, (inputs, labels) in enumerate(tqdm(dload_test, desc="Testing", disable=not accelerator.is_main_process)):
-        labels = labels.squeeze().long()
-
-        with t.no_grad():
-            logits = accelerator.unwrap_model(f).classify(inputs)
-
-        loss, correct, confs, targets = accelerator.gather_for_metrics(
-            (
-                t.nn.functional.cross_entropy(logits, labels),
-                (logits.max(1)[1] == labels).float(),
-                t.nn.functional.softmax(logits, dim=1),
-                labels,
-            )
-        )
-
-        all_gts.extend(targets)
-        all_confs.extend(confs)
-        all_losses.extend(loss)
-        all_corrects.extend(correct)
-
-        for i, class_name in enumerate(datamodule.classnames):
-            correct_per_class[class_name] += t.sum((correct == 1) & (targets == i)).item()
-            total_per_class[class_name] += t.sum(targets == i).item()
-
-    test_loss = np.mean([loss.item() for loss in all_losses])
-    test_acc = np.mean([correct.item() for correct in all_corrects])
-
-    accuracy_per_class = {
-        label: correct / total if total > 0 else 0
-        for label, (correct, total) in zip(
-            datamodule.classnames,
-            zip(correct_per_class.values(), total_per_class.values()),
-        )
-    }
-
-    all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
-    all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
-
-    ece, diagram = ECE(10), ReliabilityDiagram(10)
-    calibration_score = ece.measure(all_confs, all_gts)
-    pl = diagram.plot(all_confs, all_gts)
-
-    test_metrics = {
-        "test_loss": test_loss,
-        "test_acc": test_acc,
-        "test_ece": calibration_score,
-    }
-    test_metrics = pd.DataFrame(test_metrics, index=[0])
-
-    accuracy_per_class = pd.DataFrame(accuracy_per_class, index=[0])
-
-    class_distribution = datamodule.get_class_distribution()
-    class_distribution = pd.DataFrame(class_distribution, columns=["Class", "Num Samples"])
-
-    if accelerator.is_main_process:
-        if not os.path.exists(test_dir):
-            os.makedirs(test_dir, exist_ok=True)
-
-        pl.savefig(f"{test_dir}/reliability_diagram.png")
-        plt.close()
-        test_metrics.to_csv(f"{test_dir}/test_metrics.csv", index=False)
-        accuracy_per_class.to_csv(f"{test_dir}/accuracy_per_class.csv", index=False)
-        class_distribution.to_csv(f"{test_dir}/class_distribution.csv", index=False)
-
-    accelerator.print(f"Test Loss: {test_loss:.4f} | Test Accuracy: {test_acc:.4f} | ECE: {calibration_score:.4f}")
-    accelerator.log(
-        {
-            "num_labeled": len(datamodule.train_labeled_indices),
-            "test_loss": test_loss,
-            "test_acc": test_acc,
-            "test_ece": calibration_score,
-        }
-    )
-
-
 def get_optimizer(accelerator: Accelerator, f: nn.Module, load_path: str = None, **config):
     """Initialize optimizer"""
     params = f.class_output.parameters() if config["clf_only"] else f.parameters()
+
     if config["optimizer"] == "adam":
-        optim = t.optim.Adam(
-            params,
-            config["lr"],
-            betas=(0.9, 0.999),
-            weight_decay=config["weight_decay"],
-        )
+        optim = t.optim.Adam(params, config["lr"])
     else:
         optim = t.optim.SGD(params, config["lr"], momentum=0.9, weight_decay=config["weight_decay"])
 
@@ -551,10 +438,7 @@ def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_la
     dir_name = f"active_{num_labeled}" if experiment_type == "active" else f"baseline_{num_labeled}"
     run_name = f"active" if experiment_type == "active" else f"baseline"
 
-    logger_kwargs = {
-        "group": experiment_name,
-        "name": run_name,
-    }
+    logger_kwargs = {"group": experiment_name, "name": run_name}
     ckpt_dir = os.path.join(log_dir, experiment_name, "checkpoints", dir_name)
     samples_dir = os.path.join(log_dir, experiment_name, "samples", dir_name)
     test_dir = os.path.join(log_dir, experiment_name, "test", dir_name)
@@ -563,7 +447,7 @@ def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_la
 
 
 def main(config):
-    accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None)
+    accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None, split_batches=True)
     datamodule = DataModule(accelerator=accelerator, **config)
     datamodule.prepare_data()
 
@@ -671,7 +555,6 @@ if __name__ == "__main__":
     config = vars(parse_args())
 
     """Scale batch size by number of GPUs for reproducibility"""
-    config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
     config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
     config.update({"experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}'})
     set_seed(config["seed"])
