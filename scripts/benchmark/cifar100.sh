@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES="2,3,4,5"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 accelerate launch train_jempp.py \
     --model yopo \
