@@ -77,10 +77,7 @@ def init_from_centers(device, datamodule: DataModule, buffer_size: int, load_pat
     for i in range(n_classes):
         mean = centers[i].to(device)
         cov = covs[i].to(device)
-        dist = MultivariateNormal(
-            mean,
-            covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(img_shape))).to(device),
-        )
+        dist = MultivariateNormal(mean, covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(img_shape))).to(device))
         buffer.append(dist.sample((bs // n_classes,)).view((bs // n_classes,) + img_shape).cpu())
         conditionals.append(dist)
 
@@ -129,6 +126,7 @@ def sample_q(f, accelerator, datamodule, replay_buffer, batch_size, n_steps, in_
 
         tmp_inp = x_k.data
         tmp_inp.requires_grad_()
+
         if sgld_lr > 0:
             tmp_inp = x_k + t.clamp(eta, -eps, eps) * sgld_lr
             tmp_inp = t.clamp(tmp_inp, -1, 1)
@@ -297,12 +295,7 @@ def train_model(
             with t.no_grad():
                 logits = accelerator.unwrap_model(f).classify(inputs)
 
-            losses, corrects = accelerator.gather_for_metrics(
-                (
-                    t.nn.functional.cross_entropy(logits, labels),
-                    (logits.max(1)[1] == labels).float(),
-                )
-            )
+            losses, corrects = accelerator.gather_for_metrics((t.nn.functional.cross_entropy(logits, labels), (logits.max(1)[1] == labels).float()))
 
             all_losses.extend(losses)
             all_corrects.extend(corrects)
@@ -527,7 +520,7 @@ if __name__ == "__main__":
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
-    config.update({"experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}'})
+    config.update({"experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}_{config["optimizer"]}'})
 
     set_seed(config["seed"])
 

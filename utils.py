@@ -108,7 +108,7 @@ def parse_args():
     parser.add_argument("--sgld_std", type=int, default=0)
     parser.add_argument("--pyld_lr", type=float, default=0.2)
     parser.add_argument("--eps", type=int, default=1)
-    parser.add_argument("--seed", type=int, default=2)
+    parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--data_root", type=str, default="data")
     parser.add_argument("--labels_per_class", type=int, default=0)
     parser.add_argument("--log_dir", type=str, default="./runs")
