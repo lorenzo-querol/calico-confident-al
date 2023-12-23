@@ -59,7 +59,7 @@ def get_model_and_buffer(accelerator: Accelerator, datamodule: DataModule, buffe
         f.load_state_dict(t.load(load_path)["model_state_dict"])
 
     if t.cuda.device_count() > 1:
-        f = accelerator.prepare(f)
+        f = accelerator.prepare_model(f)
 
     return f, init_random(datamodule.img_shape, buffer_size)
 
@@ -79,6 +79,6 @@ def get_optimizer(accelerator: Accelerator, f: nn.Module, load_path: str = None,
         optim.load_state_dict(t.load(load_path)["optimizer_state_dict"])
 
     if t.cuda.device_count() > 1:
-        optim = accelerator.prepare(optim)
+        optim = accelerator.prepare_optimizer(optim)
 
     return optim

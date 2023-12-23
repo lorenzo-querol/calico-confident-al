@@ -34,8 +34,8 @@ from tqdm import tqdm
 
 from DataModule import DataModule
 from ExpUtils import *
-from models.JEM import get_model_and_buffer
-from utils import Hamiltonian, parse_args
+from models.JEM import get_model_and_buffer, get_optimizer
+from utils import Hamiltonian, parse_args, get_experiment_name
 
 conditionals = []
 
@@ -409,30 +409,6 @@ def train_model(
     if accelerator.is_main_process:
         accelerator.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
 
-    return f, best_ckpt_path
-
-
-def get_optimizer(accelerator: Accelerator, f: nn.Module, load_path: str = None, **config):
-    """Initialize optimizer"""
-    params = f.class_output.parameters() if config["clf_only"] else f.parameters()
-
-    if config["optimizer"] == "adam":
-        optim = t.optim.Adam(params, config["lr"])
-    else:
-        optim = t.optim.SGD(params, config["lr"], momentum=0.9, weight_decay=config["weight_decay"])
-
-    if load_path is not None:
-        optim.load_state_dict(t.load(load_path)["optimizer_state_dict"])
-
-    if t.cuda.device_count() > 1:
-        optim = accelerator.prepare(optim)
-
-    return optim
-
-
-def get_experiment_name(**config):
-    return f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_{config['dataset']}" if config["experiment_name"] is None else config["experiment_name"]
-
 
 def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_labeled: int = None):
     dir_name = f"active_{num_labeled}" if experiment_type == "active" else f"baseline_{num_labeled}"
@@ -447,7 +423,7 @@ def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_la
 
 
 def main(config):
-    accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None, split_batches=True)
+    accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None)
     datamodule = DataModule(accelerator=accelerator, **config)
     datamodule.prepare_data()
 
@@ -467,14 +443,14 @@ def main(config):
     if not os.path.isfile(f"weights/{datamodule.dataset}_cov.pt"):
         category_mean(dload_train=dload_train, datamodule=datamodule)
 
-    f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
-    replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
-    optim = get_optimizer(accelerator=accelerator, f=f, **config)
-
     n_iters = len(datamodule.full_train) // config["query_size"]
     init_size = config["query_size"]
 
     for i in range(n_iters):
+        f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
+        replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
+        optim = get_optimizer(accelerator=accelerator, f=f, **config)
+
         logger_kwargs, dirs = init_logger(
             experiment_name=experiment_name,
             experiment_type=config["experiment_type"],
@@ -486,7 +462,7 @@ def main(config):
             accelerator.init_trackers(project_name="JEM", config=config, init_kwargs={"wandb": logger_kwargs})
 
         """---TRAINING---"""
-        f, best_ckpt_path = train_model(
+        train_model(
             f=f,
             optim=optim,
             accelerator=accelerator,
@@ -538,25 +514,21 @@ def main(config):
                 train_unlabeled_inds,
             ) = datamodule.get_data(start_iter=False, sampling_method="random", init_size=init_size)
 
-        """---REINITIALIZE---"""
-        f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
-        replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
-        optim = get_optimizer(accelerator=accelerator, f=f, **config)
-
     if config["enable_tracking"]:
         accelerator.end_training()
 
 
 if __name__ == "__main__":
-    t.backends.cudnn.benchmark = False
+    t.backends.cudnn.benchmark = True
     t.backends.cudnn.enabled = True
-    t.backends.cudnn.deterministic = True
 
     config = vars(parse_args())
 
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
+    config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
     config.update({"experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}'})
+
     set_seed(config["seed"])
 
     main(config)
