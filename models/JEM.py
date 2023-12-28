@@ -8,17 +8,7 @@ from models.WideResNetYOPO import WideResNetYOPO
 
 
 class F(nn.Module):
-    def __init__(
-        self,
-        depth: int,
-        width: int,
-        norm: str | None,
-        dropout_rate: float,
-        n_classes: int,
-        n_channels: int,
-        model: str,
-        **config,
-    ):
+    def __init__(self, depth: int, width: int, norm: str | None, dropout_rate: float, n_classes: int, n_channels: int, model: str, **config):
         super(F, self).__init__()
         if model == "yopo":
             self.f = WideResNetYOPO(depth, width, n_channels, norm=norm)

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-USER_TO_CHECK="lorenzoquerol"
+USER_TO_CHECK="lorenzo"
 
 # Check if the username is provided
 if [ -z "$USER_TO_CHECK" ]; then

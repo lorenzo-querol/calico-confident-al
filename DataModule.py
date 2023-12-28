@@ -88,7 +88,7 @@ class DataModule:
     def download_dataset(self, split: str):
         if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
             other_dataset = OtherDataset(self.dataset, root=self.data_root, split=split, transform=None, download=True)
-            self.img_shape = (3, 32, 32)
+            self.img_shape = (1, 28, 28) if self.dataset == "mnist" else (3, 32, 32)
             self.n_classes = 100 if self.dataset == "cifar100" else 10
             self.classnames = other_dataset.classes
 
@@ -212,7 +212,8 @@ class DataModule:
     def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = True, train: bool = False):
         return DataLoader(
             dataset,
-            batch_size=self.batch_size if train else 5000,
+            # batch_size=self.batch_size if train else 5000,
+            batch_size=self.batch_size,
             shuffle=shuffle,
             num_workers=0,
             drop_last=drop_last,

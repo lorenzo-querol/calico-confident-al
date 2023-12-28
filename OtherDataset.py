@@ -21,11 +21,10 @@ class OtherDataset:
         self.transform = transform
         self.download = download
 
-        # Load the specified dataset
         if dataset_name == "mnist":
             self.dataset = datasets.MNIST(root=self.root, train=True if split == "train" else False, download=download, transform=transform)
-            self.classes = self.dataset.classes
-        if dataset_name == "cifar10":
+            self.classes = self.dataset.targets.unique().tolist()
+        elif dataset_name == "cifar10":
             self.dataset = datasets.CIFAR10(root=self.root, train=True if split == "train" else False, download=download, transform=transform)
             self.classes = self.dataset.classes
         elif dataset_name == "cifar100":
