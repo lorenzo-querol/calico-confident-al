@@ -4,9 +4,10 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 accelerate launch train_jempp.py \
     --model yopo \
-    --lr 0.1 \
-    --optimizer sgd \
-    --norm batch \
+    --lr 0.0001 \
+    --optimizer adam \
+    --norm none \
+    --n_epochs 150 \
     --decay_epochs 50 100 125 \
     --p_x_weight 1.0 \
     --p_y_x_weight 1.0 \
