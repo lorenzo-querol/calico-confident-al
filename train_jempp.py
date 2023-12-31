@@ -27,8 +27,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from DataModule import DataModule
-from ExpUtils import *
-from models.JEM import get_model_and_buffer, get_optimizer
+from models.JEM import get_model_and_buffer, get_optimizer, get_scheduler
 from utils import Hamiltonian, get_experiment_name, parse_args
 
 conditionals = []
@@ -205,8 +204,7 @@ def train_model(
 
     cur_iter = 0
     new_lr = config["lr"]
-    best_val_loss = np.inf
-    best_val_acc = 0.0
+    best_val_loss, best_val_acc = np.inf, 0.0
     best_ckpt_path = None
     patience = 15
     counter = 0
@@ -216,6 +214,7 @@ def train_model(
             for param_group in optim.param_groups:
                 new_lr = param_group["lr"] * config["decay_rate"]
                 param_group["lr"] = new_lr
+
             accelerator.print(f"Decaying LR to {new_lr:.8f}.")
 
         epoch_loss = 0.0
@@ -226,9 +225,9 @@ def train_model(
         loss_p_x = 0.0
         loss_l2 = 0.0
 
-        progress_bar = tqdm(dload_train, desc=(f"Epoch {epoch+1}/{config['n_epochs']}"), disable=not accelerator.is_main_process)
-
         """---TRAINING---"""
+
+        progress_bar = tqdm(dload_train, desc=(f"Epoch {epoch+1}/{config['n_epochs']}"), disable=not accelerator.is_main_process)
 
         f.train()
         for i, (x_p_d, _) in enumerate(progress_bar):
@@ -253,7 +252,7 @@ def train_model(
                     fq_all = f(x_q)
                     fq = fq_all.mean()
 
-                    loss_p_x = -(fp - fq)
+                    loss_p_x = fq - fp
                     L += config["p_x_weight"] * loss_p_x
 
                     if config["l2_weight"] > 0:
@@ -264,11 +263,11 @@ def train_model(
             if config["p_y_x_weight"] > 0:
                 logits = accelerator.unwrap_model(f).classify(x_lab)
                 loss_p_y_x = nn.functional.cross_entropy(logits, y_lab)
-                acc = (logits.max(1)[1] == y_lab).float().mean().item()
+                acc = (logits.max(1)[1] == y_lab).float().mean()
                 L += config["p_y_x_weight"] * loss_p_y_x
 
             epoch_loss += L.item()
-            epoch_acc += acc
+            epoch_acc += acc.item()
             epoch_loss_p_x += loss_p_x.item() if config["p_x_weight"] > 0 else 0.0
             epoch_loss_l2 += loss_l2.item() if config["l2_weight"] > 0 else 0.0
             epoch_loss_p_y_x += loss_p_y_x.item()
@@ -290,26 +289,23 @@ def train_model(
             with t.no_grad():
                 logits = accelerator.unwrap_model(f).classify(inputs)
 
-            all_losses.append(t.nn.functional.cross_entropy(logits, labels).item())
-            all_corrects.append((logits.max(1)[1] == labels).float().mean().item())
+            losses, corrects = accelerator.gather_for_metrics(
+                (
+                    t.nn.functional.cross_entropy(logits, labels),
+                    (logits.max(1)[1] == labels).float().mean(),
+                )
+            )
 
-        val_loss = np.mean([loss for loss in all_losses])
-        val_acc = np.mean([correct for correct in all_corrects])
+            all_losses.extend(loss.item() for loss in losses)
+            all_corrects.extend(correct.item() for correct in corrects)
+
+        val_loss = np.mean(all_losses)
+        val_acc = np.mean(all_corrects)
 
         """Check if current valid loss is the best"""
         if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_val_acc = val_acc
+            best_val_loss, best_val_acc = val_loss, val_acc
             accelerator.print(f"New Val Loss: {best_val_loss:.4f} \t Val Accuracy: {val_acc:.4f}")
-
-            if config["enable_tracking"]:
-                accelerator.log({"val_loss": best_val_loss, "val_acc": val_acc})
-
-            ckpt_dict = {
-                "model_state_dict": accelerator.unwrap_model(f).state_dict(),
-                "optimizer_state_dict": optim.state_dict(),
-                "replay_buffer": replay_buffer,
-            }
 
             if accelerator.is_main_process:
                 if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
@@ -318,6 +314,11 @@ def train_model(
                 best_ckpt_path = f"{ckpt_dir}/epoch={epoch + (config['n_epochs'] * iter_num)}-val_loss={val_loss:.4f}.ckpt"
                 os.makedirs(ckpt_dir, exist_ok=True)
 
+                ckpt_dict = {
+                    "model_state_dict": accelerator.unwrap_model(f).state_dict(),
+                    "optimizer_state_dict": optim.state_dict(),
+                    "replay_buffer": replay_buffer,
+                }
                 accelerator.save(ckpt_dict, best_ckpt_path)
 
         """Early stopping"""
@@ -343,39 +344,27 @@ def train_model(
 
                 tv.utils.save_image(image, f"{samples_dir}/x_q-epoch={epoch + (config['n_epochs'] * iter_num)}.png")
 
-        if config["ckpt_every_n_epochs"] and (epoch + (config["n_epochs"] * iter_num)) % config["ckpt_every_n_epochs"] == 0:
-            ckpt_dict = {
-                "model_state_dict": accelerator.unwrap_model(f).state_dict(),
-                "optimizer_state_dict": optim.state_dict(),
-                "replay_buffer": replay_buffer,
-            }
-
-            if accelerator.is_main_process:
-                accelerator.save(ckpt_dict, f"{ckpt_dir}/epoch={epoch+1 + (config['n_epochs'] * iter_num)}.ckpt")
-
         epoch_loss /= len(dload_train)
         epoch_acc /= len(dload_train)
         epoch_loss_p_x /= len(dload_train)
         epoch_loss_p_y_x /= len(dload_train)
         epoch_loss_l2 /= len(dload_train)
 
-        accelerator.print(
-            f"Loss: {epoch_loss:.4f} \t Acc: {epoch_acc:.4f} \t Loss P(x): {epoch_loss_p_x:.4f} \t  Loss L2: {epoch_loss_l2:.4f} \t Loss P(y|x): {epoch_loss_p_y_x:.4f} \t Val Loss: {val_loss:.4f} \t Val Acc: {val_acc:.4f}"
-        )
+        print_values = f"Loss: {epoch_loss:.4f} \t Acc: {epoch_acc:.4f} \t Loss P(x): {epoch_loss_p_x:.4f} \t  Loss L2: {epoch_loss_l2:.4f} \t Loss P(y|x): {epoch_loss_p_y_x:.4f} \t Val Loss: {val_loss:.4f} \t Val Acc: {val_acc:.4f}"
+        accelerator.print(print_values)
 
         if config["enable_tracking"]:
-            accelerator.log(
-                {
-                    "epoch": epoch + (config["n_epochs"] * iter_num) + 1,
-                    "loss": epoch_loss,
-                    "loss_p_x": epoch_loss_p_x if config["p_x_weight"] > 0 else 0.0,
-                    "loss_l2": epoch_loss_l2 if config["l2_weight"] > 0 else 0.0,
-                    "loss_p_y_x": epoch_loss_p_y_x,
-                    "acc": epoch_acc,
-                    "val_loss": val_loss,
-                    "val_acc": val_acc,
-                }
-            )
+            log_values = {
+                "epoch": epoch + (config["n_epochs"] * iter_num) + 1,
+                "loss": epoch_loss,
+                "loss_p_x": epoch_loss_p_x if config["p_x_weight"] > 0 else 0.0,
+                "loss_l2": epoch_loss_l2 if config["l2_weight"] > 0 else 0.0,
+                "loss_p_y_x": epoch_loss_p_y_x,
+                "acc": epoch_acc,
+                "val_loss": val_loss,
+                "val_acc": val_acc,
+            }
+            accelerator.log(log_values)
 
     """Log with respect to number of labeled samples"""
     if config["enable_tracking"]:
@@ -414,8 +403,10 @@ def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_la
 
 def main(config):
     global conditionals
+
     accelerator = Accelerator(
-        log_with="wandb" if config["enable_tracking"] else None, kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(seconds=1800))]
+        log_with="wandb" if config["enable_tracking"] else None,
+        kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(seconds=7200))],
     )
     datamodule = DataModule(accelerator=accelerator, **config)
     datamodule.prepare_data()
@@ -467,8 +458,8 @@ def main(config):
             **config,
         )
 
-        if len(train_unlabeled_inds) == 0:
-            accelerator.print("No more unlabeled samples to query.")
+        if len(train_labeled_inds) == 4000:
+            accelerator.print(f"Training complete with {len(train_labeled_inds)} labeled samples.")
             break
 
         if config["experiment_type"] == "active":
@@ -485,6 +476,7 @@ def main(config):
                 indices_to_fix=inds_to_fix,
                 start_iter=False,
             )
+
         elif config["experiment_type"] == "baseline":
             """---BASELINE STEP---"""
             init_size += config["query_size"]

@@ -117,7 +117,10 @@ def get_ckpts(ckpt_dir: str, experiment_type: str):
 def main(config):
     datamodule = DataModule(accelerator=None, **config)
     datamodule.prepare_data()
-    dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_indices, train_unlabeled_indices = datamodule.get_data()
+    dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_inds, train_unlabeled_inds = datamodule.get_data(
+        sampling_method="random",
+        init_size=config["query_size"],
+    )
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
     config.update({"experiment_name": get_experiment_name(**config)})
@@ -141,6 +144,24 @@ def main(config):
         """---TESTING---"""
         folder_name = f"{test_dir}/{experiment_type}_{num_labeled}"
         test_model(f=f, datamodule=datamodule, test_dir=folder_name, num_labeled=num_labeled)
+
+        if len(train_labeled_inds) == 4000:
+            print("Reached 4000 labeled samples. Finished testing.")
+            break
+
+        """---ACTIVE LEARNING STEP---"""
+        inds_to_fix = datamodule.query_samples(
+            f=f,
+            dload_train_unlabeled=dload_train_unlabeled,
+            train_unlabeled_inds=train_unlabeled_inds,
+            query_size=config["query_size"],
+        )
+        dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_inds, train_unlabeled_inds = datamodule.get_data(
+            train_labeled_indices=train_labeled_inds,
+            train_unlabeled_indices=train_unlabeled_inds,
+            indices_to_fix=inds_to_fix,
+            start_iter=False,
+        )
 
     if config["enable_tracking"]:
         wandb.finish()

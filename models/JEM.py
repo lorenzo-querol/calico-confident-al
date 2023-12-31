@@ -72,3 +72,13 @@ def get_optimizer(accelerator: Accelerator, f: nn.Module, load_path: str = None,
         optim = accelerator.prepare_optimizer(optim)
 
     return optim
+
+
+def get_scheduler(accelerator: Accelerator, optim: t.optim.Optimizer, decay_rate, decay_epochs, **config):
+    """Initialize scheduler"""
+    scheduler = t.optim.lr_scheduler.MultiStepLR(optim, decay_epochs, gamma=decay_rate)
+
+    if t.cuda.device_count() > 1:
+        scheduler = accelerator.prepare_scheduler(scheduler)
+
+    return scheduler

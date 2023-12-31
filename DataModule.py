@@ -9,7 +9,6 @@ import torch.nn as nn
 import torchvision.transforms as tr
 from accelerate import Accelerator
 from torch.utils.data import DataLoader, Subset
-from torchvision.datasets import CIFAR10, CIFAR100, MNIST, SVHN
 from tqdm import tqdm
 
 from OtherDataset import OtherDataset
@@ -48,11 +47,13 @@ class DataModule:
             tr.Normalize((0.5,) * self.img_shape[0], (0.5,) * self.img_shape[0]),
         ]
 
+        # if self.img_shape[0] == 1:
+        #     common_transform = common_transform[:-1]
+
         if augment:
             final_transform = [
                 tr.Pad(4, padding_mode="reflect"),
                 tr.RandomCrop(self.img_shape[1]),
-                tr.RandomRotation(20),
                 tr.RandomHorizontalFlip(),
             ]
 
@@ -92,7 +93,7 @@ class DataModule:
             self.n_classes = 100 if self.dataset == "cifar100" else 10
             self.classnames = other_dataset.classes
 
-        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
+        elif self.dataset in ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]
@@ -114,7 +115,7 @@ class DataModule:
 
             return dataset
 
-        elif self.dataset in ["bloodmnist", "organcmnist", "dermamnist", "pneumoniamnist"]:
+        elif self.dataset in ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             dataset = DataClass(root=self.data_root, split=split, transform=transform, download=False)
@@ -192,10 +193,10 @@ class DataModule:
         self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
         self.valid = self._dataset_function("val", train=False, augment=False)
 
-        self.dload_train = self.create_dataloader(self.full_train, train=True)
-        self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, drop_last=False, train=True))
-        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, drop_last=False) if len(self.train_unlabeled_indices) > 0 else None
-        self.dload_valid = self.create_dataloader(self.valid, shuffle=False, drop_last=False)
+        self.dload_train = self.create_dataloader(self.full_train, train=True, drop_last=False)
+        self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, train=True))
+        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, shuffle=False) if len(self.train_unlabeled_indices) > 0 else None
+        self.dload_valid = self.create_dataloader(self.valid, shuffle=False)
 
         if t.cuda.device_count() > 1:
             self.prepare_ddp()
@@ -209,11 +210,10 @@ class DataModule:
             self.train_unlabeled_indices,
         )
 
-    def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = True, train: bool = False):
+    def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = False, train: bool = False):
         return DataLoader(
             dataset,
-            # batch_size=self.batch_size if train else 5000,
-            batch_size=self.batch_size,
+            batch_size=self.batch_size if train else 256,
             shuffle=shuffle,
             num_workers=0,
             drop_last=drop_last,
@@ -230,32 +230,39 @@ class DataModule:
         confs, confs_to_fix = [], []
 
         f.eval()
-        progress_bar = tqdm(dload_train_unlabeled, desc="Predicting", disable=not self.accelerator.is_main_process)
-        with t.no_grad():
-            for i, (x_p_d, y_p_d) in enumerate(progress_bar):
-                x_p_d, y_p_d = x_p_d.to(self.accelerator.device), y_p_d.to(self.accelerator.device).squeeze().long()
-                logits = self.accelerator.unwrap_model(f).classify(x_p_d)
+        progress_bar = tqdm(dload_train_unlabeled, desc="Predicting", disable=not self.accelerator.is_main_process if self.accelerator else True)
+        device = self.accelerator.device if self.accelerator else "cuda"
 
-                confs.extend(nn.functional.softmax(logits, dim=1).cpu().numpy())
+        for i, (x_p_d, y_p_d) in enumerate(progress_bar):
+            x_p_d, y_p_d = x_p_d.to(device), y_p_d.to(device).squeeze().long()
 
-            confs = np.array(confs).reshape((-1, self.n_classes))
+            with t.no_grad():
+                if self.accelerator:
+                    logits = self.accelerator.unwrap_model(f).classify(x_p_d)
+                else:
+                    logits = f.classify(x_p_d)
 
-            for ind, conf in enumerate(confs):
-                if ind >= len(train_unlabeled_inds):
-                    break
-                confs_to_fix.append((conf.max(), train_unlabeled_inds[ind]))
+            confs.extend(nn.functional.softmax(logits, dim=1).detach().cpu().numpy())
 
-            """Sorts by confidence for each image"""
-            confs_to_fix.sort(key=lambda x: x[0])
+        confs = np.array(confs).reshape((-1, self.n_classes))
 
-            # Ensure that the number of samples to be queried is not greater than the size of the unlabeled pool
-            query_size = min(query_size, len(train_unlabeled_inds))
+        for ind, conf in enumerate(confs):
+            if ind >= len(train_unlabeled_inds):
+                break
+            confs_to_fix.append((conf.max(), train_unlabeled_inds[ind]))
 
-            confs_to_fix = confs_to_fix[:query_size]
-            inds_to_fix = [ind for _, ind in confs_to_fix]
-            inds_to_fix.sort()
+        query_size = min(query_size, len(train_unlabeled_inds))
 
+        confs_to_fix.sort(key=lambda x: x[0])
+
+        confs_to_fix = confs_to_fix[:query_size]
+        inds_to_fix = [ind for _, ind in confs_to_fix]
+        inds_to_fix.sort()
+
+        if self.accelerator:
             self.accelerator.print(f"Length of inds to fix: {len(inds_to_fix)}")
+        else:
+            print(f"Length of inds to fix: {len(inds_to_fix)}")
 
         return inds_to_fix
 
