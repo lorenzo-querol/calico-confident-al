@@ -426,6 +426,8 @@ def main(config):
     n_iters = len(datamodule.full_train) // config["query_size"]
     init_size = config["query_size"]
 
+    limit = 40000 if config["dataset"] in ["cifar10", "cifar100", "mnist" "svhn"] else 4000
+
     for i in range(n_iters):
         conditionals = []
         f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
@@ -458,7 +460,7 @@ def main(config):
             **config,
         )
 
-        if len(train_labeled_inds) == 4000:
+        if len(train_labeled_inds) == limit:
             accelerator.print(f"Training complete with {len(train_labeled_inds)} labeled samples.")
             break
 
