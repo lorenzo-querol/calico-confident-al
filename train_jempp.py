@@ -53,7 +53,9 @@ def init_random(datamodule, bs):
     return t.clamp(new, -1, 1).cpu()
 
 
-def init_from_centers(device, datamodule: DataModule, buffer_size: int, load_path: str = None, **config):
+def init_from_centers(
+    device, datamodule: DataModule, buffer_size: int, load_path: str = None, **config
+):
     global conditionals
 
     if load_path is not None:
@@ -75,7 +77,9 @@ def init_from_centers(device, datamodule: DataModule, buffer_size: int, load_pat
             mean,
             covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(img_shape))).to(device),
         )
-        buffer.append(dist.sample((bs // n_classes,)).view((bs // n_classes,) + img_shape).cpu())
+        buffer.append(
+            dist.sample((bs // n_classes,)).view((bs // n_classes,) + img_shape).cpu()
+        )
         conditionals.append(dist)
 
     return t.clamp(t.cat(buffer), -1, 1)
@@ -85,7 +89,9 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
     if len(replay_buffer) == 0:
         return init_random(datamodule, bs), []
 
-    buffer_size = len(replay_buffer) if y is None else len(replay_buffer) // datamodule.n_classes
+    buffer_size = (
+        len(replay_buffer) if y is None else len(replay_buffer) // datamodule.n_classes
+    )
     inds = t.randint(0, buffer_size, (bs,))
 
     # If conditional, convert inds to class-conditional inds
@@ -118,7 +124,9 @@ def sample_q(
 ):
     bs = batch_size
 
-    init_sample, buffer_inds = sample_p_0(replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config)
+    init_sample, buffer_inds = sample_p_0(
+        replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config
+    )
     x_k = t.autograd.Variable(init_sample, requires_grad=True)
 
     if in_steps > 0:
@@ -146,7 +154,9 @@ def sample_q(
         for i in range(in_steps):
             H = Hamiltonian_func(tmp_inp, p)
 
-            eta_grad = t.autograd.grad(H, [tmp_inp], only_inputs=True, retain_graph=True)[0]
+            eta_grad = t.autograd.grad(
+                H, [tmp_inp], only_inputs=True, retain_graph=True
+            )[0]
             eta_step = t.clamp(eta_grad, -eps, eps) * pyld_lr
 
             tmp_inp.data = tmp_inp.data + eta_step
@@ -326,12 +336,14 @@ def train_model(
             )
 
             all_gts.extend(targets)
-            all_confs.extend(conf.item() for conf in confs)
+            all_confs.extend(confs)
 
             all_losses.extend(loss.item() for loss in losses)
             all_corrects.extend(correct.item() for correct in corrects)
 
-        all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
+        all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape(
+            (-1, datamodule.n_classes)
+        )
         all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
 
         val_ece = ECE(10).measure(all_confs, all_gts)
@@ -341,7 +353,9 @@ def train_model(
         """Check if current valid loss is the best"""
         if val_loss < best_val_loss:
             best_val_loss, best_val_acc = val_loss, val_acc
-            accelerator.print(f"New Val Loss: {best_val_loss:.4f} \t Val Accuracy: {val_acc:.4f}")
+            accelerator.print(
+                f"New Val Loss: {best_val_loss:.4f} \t Val Accuracy: {val_acc:.4f}"
+            )
 
             if accelerator.is_main_process:
                 if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
@@ -359,7 +373,9 @@ def train_model(
 
         """---LOGGING AND CHECKPOINTING---"""
 
-        if (epoch + (config["n_epochs"] * iter_num)) % config["sample_every_n_epochs"] == 0 and config["p_x_weight"] > 0:
+        if (epoch + (config["n_epochs"] * iter_num)) % config[
+            "sample_every_n_epochs"
+        ] == 0 and config["p_x_weight"] > 0:
             with accelerator.no_sync(f):
                 x_q = sample_q(f, accelerator, datamodule, replay_buffer, **config)
 
@@ -421,8 +437,14 @@ def train_model(
         accelerator.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
 
 
-def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_labeled: int = None):
-    dir_name = f"active_{num_labeled}" if experiment_type == "active" else f"baseline_{num_labeled}"
+def init_logger(
+    experiment_name: str, experiment_type: str, log_dir: str, num_labeled: int = None
+):
+    dir_name = (
+        f"active_{num_labeled}"
+        if experiment_type == "active"
+        else f"baseline_{num_labeled}"
+    )
     run_name = f"active" if experiment_type == "active" else f"baseline"
 
     logger_kwargs = {"group": experiment_name, "name": run_name}
@@ -465,13 +487,22 @@ def main(config):
     n_iters = len(datamodule.full_train) // config["query_size"]
     init_size = config["query_size"]
 
-    limit_dict = {"cifar10": 40000, "cifar100": 40000, "svhn": 20000, "bloodmnist": 4000}
+    limit_dict = {
+        "cifar10": 40000,
+        "cifar100": 40000,
+        "svhn": 20000,
+        "bloodmnist": 4000,
+    }
     LIMIT = limit_dict[config["dataset"]]
 
     for i in range(n_iters):
         conditionals = []
-        f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
-        replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
+        f, replay_buffer = get_model_and_buffer(
+            accelerator=accelerator, datamodule=datamodule, **config
+        )
+        replay_buffer = init_from_centers(
+            device=accelerator.device, datamodule=datamodule, **config
+        )
         optim = get_optimizer(accelerator=accelerator, f=f, **config)
 
         logger_kwargs, dirs = init_logger(
@@ -482,7 +513,9 @@ def main(config):
         )
 
         if config["enable_tracking"]:
-            accelerator.init_trackers(project_name="JEM", config=config, init_kwargs={"wandb": logger_kwargs})
+            accelerator.init_trackers(
+                project_name="JEM", config=config, init_kwargs={"wandb": logger_kwargs}
+            )
 
         """---TRAINING---"""
         train_model(
@@ -501,7 +534,9 @@ def main(config):
         )
 
         if len(train_labeled_inds) == LIMIT:
-            accelerator.print(f"Training complete with {len(train_labeled_inds)} labeled samples.")
+            accelerator.print(
+                f"Training complete with {len(train_labeled_inds)} labeled samples."
+            )
             break
 
         # if config["experiment_type"] == "active":
@@ -555,7 +590,11 @@ if __name__ == "__main__":
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
-    config.update({"experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}_{config["optimizer"]}'})
+    config.update(
+        {
+            "experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}_{config["optimizer"]}'
+        }
+    )
 
     set_seed(config["seed"])
 
