@@ -14,7 +14,7 @@ accelerate launch train_jempp.py \
     --l2_weight 0.0 \
     --n_steps 10 \
     --in_steps 5 \
-    --query_size 2500 \
+    --query_size 1000 \
     --dataset cifar10 \
     --experiment_type active \
     --calibrated \

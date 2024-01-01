@@ -4,7 +4,9 @@ from torchvision import datasets
 
 
 class OtherDataset:
-    def __init__(self, dataset_name, root="./data", split=None, transform=None, download=True):
+    def __init__(
+        self, dataset_name, root="./data", split=None, transform=None, download=True
+    ):
         """
         Initialize the SplitCIFARDataset.
 
@@ -22,19 +24,41 @@ class OtherDataset:
         self.download = download
 
         if dataset_name == "mnist":
-            self.dataset = datasets.MNIST(root=self.root, train=True if split == "train" else False, download=download, transform=transform)
+            self.dataset = datasets.MNIST(
+                root=self.root,
+                train=True if split == "train" else False,
+                download=download,
+                transform=transform,
+            )
             self.classes = self.dataset.targets.unique().tolist()
         elif dataset_name == "cifar10":
-            self.dataset = datasets.CIFAR10(root=self.root, train=True if split == "train" else False, download=download, transform=transform)
+            self.dataset = datasets.CIFAR10(
+                root=self.root,
+                train=True if split == "train" else False,
+                download=download,
+                transform=transform,
+            )
             self.classes = self.dataset.classes
         elif dataset_name == "cifar100":
-            self.dataset = datasets.CIFAR100(root=self.root, train=True if split == "train" else False, download=download, transform=transform)
+            self.dataset = datasets.CIFAR100(
+                root=self.root,
+                train=True if split == "train" else False,
+                download=download,
+                transform=transform,
+            )
             self.classes = self.dataset.classes
         elif dataset_name == "svhn":
-            self.dataset = datasets.SVHN(root=self.root, split=split, download=download, transform=transform)
-            self.classes = self.dataset.classes
+            self.dataset = datasets.SVHN(
+                root=self.root,
+                split="train" if split == "train" else "test",
+                download=download,
+                transform=transform,
+            )
+            self.classes = self.dataset.labels
         else:
-            raise ValueError("Invalid dataset_name. Choose 'cifar10', 'cifar100', or 'svhn'.")
+            raise ValueError(
+                "Invalid dataset_name. Choose 'cifar10', 'cifar100', or 'svhn'."
+            )
 
         self.train_dataset, self.val_dataset = self._split_dataset()
         self.get_dataset()
@@ -60,7 +84,11 @@ class OtherDataset:
         torch.manual_seed(random_seed)
 
         # Perform the random split
-        train_dataset, val_dataset = random_split(self.dataset, [train_size, val_size], generator=torch.Generator().manual_seed(random_seed))
+        train_dataset, val_dataset = random_split(
+            self.dataset,
+            [train_size, val_size],
+            generator=torch.Generator().manual_seed(random_seed),
+        )
 
         return train_dataset, val_dataset
 
