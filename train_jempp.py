@@ -380,7 +380,7 @@ def train_model(
         epoch_loss_p_y_x /= len(dload_train)
         epoch_loss_l2 /= len(dload_train)
 
-        print_values = f"Loss: {epoch_loss:.4f} \t Acc: {epoch_acc:.4f} \t Loss P(x): {epoch_loss_p_x:.4f} \t  Loss L2: {epoch_loss_l2:.4f} \t Loss P(y|x): {epoch_loss_p_y_x:.4f} \t Val Loss: {val_loss:.4f} \t Val Acc: {val_acc:.4f}"
+        print_values = f"Loss: {epoch_loss:.4f} \t Acc: {epoch_acc:.4f} \t Loss P(x): {epoch_loss_p_x:.4f} \t  Loss L2: {epoch_loss_l2:.4f} \t Loss P(y|x): {epoch_loss_p_y_x:.4f} \t Val Loss: {val_loss:.4f} \t Val Acc: {val_acc:.4f} \t Val ECE: {val_ece:.4f}"
         accelerator.print(print_values)
 
         if config["enable_tracking"]:
@@ -406,6 +406,7 @@ def train_model(
                 "acc": epoch_acc,
                 "val_loss": best_val_loss,
                 "val_acc": best_val_acc,
+                "val_ece": val_ece,
             }
         )
 
