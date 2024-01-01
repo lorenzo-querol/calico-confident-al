@@ -22,6 +22,7 @@ import torch.nn as nn
 import torchvision as tv
 from accelerate import Accelerator, InitProcessGroupKwargs
 from accelerate.utils import set_seed
+from netcal.metrics import ECE
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -236,6 +237,7 @@ def train_model(
             accelerator.print(f"Decaying LR to {new_lr:.8f}.")
 
         epoch_loss = 0.0
+        epoch_ece = 0.0
         epoch_acc = 0.0
         epoch_loss_p_x = 0.0
         epoch_loss_p_y_x = 0.0
@@ -306,7 +308,7 @@ def train_model(
         """---VALIDATION---"""
 
         f.eval()
-        all_corrects, all_losses = [], []
+        all_corrects, all_losses, all_confs, all_gts = [], [], [], []
         val_loss, val_acc = np.inf, 0.0
         for inputs, labels in dload_valid:
             labels = labels.squeeze().long()
@@ -314,16 +316,25 @@ def train_model(
             with t.no_grad():
                 logits = accelerator.unwrap_model(f).classify(inputs)
 
-            losses, corrects = accelerator.gather_for_metrics(
+            losses, corrects, confs, targets = accelerator.gather_for_metrics(
                 (
                     t.nn.functional.cross_entropy(logits, labels),
                     (logits.max(1)[1] == labels).float().mean(),
+                    t.nn.functional.softmax(logits, dim=1),
+                    labels,
                 )
             )
+
+            all_gts.extend(targets)
+            all_confs.extend(conf.item() for conf in confs)
 
             all_losses.extend(loss.item() for loss in losses)
             all_corrects.extend(correct.item() for correct in corrects)
 
+        all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
+        all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
+
+        val_ece = ECE(10).measure(all_confs, all_gts)
         val_loss = np.mean(all_losses)
         val_acc = np.mean(all_corrects)
 
@@ -382,6 +393,7 @@ def train_model(
                 "acc": epoch_acc,
                 "val_loss": val_loss,
                 "val_acc": val_acc,
+                "val_ece": val_ece,
             }
             accelerator.log(log_values)
 
