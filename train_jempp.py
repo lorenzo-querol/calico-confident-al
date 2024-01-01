@@ -482,7 +482,13 @@ def main(config):
 
     n_iters = len(datamodule.full_train) // config["query_size"]
     init_size = config["query_size"]
-    LIMIT = 20000 if config["dataset"] in ["cifar10", "cifar100", "svhn"] else 4000
+
+    # Limit number
+    # CIFAR 10 and 100 40000
+    # SVHN 20000
+    # medMNIST 4000
+    limit_dict = {"cifar10": 40000, "cifar100": 40000, "svhn": 20000, "medmnist": 4000}
+    LIMIT = limit_dict[datamodule.dataset]
 
     for i in range(n_iters):
         conditionals = []
