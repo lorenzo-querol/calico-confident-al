@@ -19,9 +19,9 @@ python test_jempp.py \
     --n_steps 10 \
     --in_steps 5 \
     --query_size 250 \
-    --dataset dermamnist \
+    --dataset pneumoniamnist \
     --experiment_type baseline \
-    --experiment_name "dermamnist_epoch_150_adam" \
+    --experiment_name "pneumoniamnist_epoch_150_adam" \
     --seed $seed_num \
     # --calibrated \
     # --enable_tracking

@@ -4,9 +4,9 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 accelerate launch train_jempp.py \
     --model yopo \
-    --lr 0.0001 \
-    --optimizer adam \
-    --norm none \
+    --lr 0.1 \
+    --optimizer sgd \
+    --norm batch \
     --n_epochs 150 \
     --decay_epochs 50 100 125 \
     --p_x_weight 1.0 \
@@ -16,7 +16,7 @@ accelerate launch train_jempp.py \
     --in_steps 5 \
     --query_size 250 \
     --dataset bloodmnist \
-    --experiment_type baseline \
+    --experiment_type active \
     --enable_tracking \
-    # --calibrated \
+    --calibrated \
 
