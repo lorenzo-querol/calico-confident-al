@@ -16,6 +16,6 @@ accelerate launch train_jempp.py \
     --in_steps 5 \
     --query_size 250 \
     --dataset pneumoniamnist \
-    --experiment_type baseline \
+    --experiment_type active \
     --enable_tracking \
-    # --calibrated \
+    --calibrated \

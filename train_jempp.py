@@ -492,6 +492,9 @@ def main(config):
         "cifar100": 40000,
         "svhn": 20000,
         "bloodmnist": 4000,
+        "dermamnist": 4000,
+        "pneumoniamnist": 4000,
+        "organsmnist": 4000,
     }
     LIMIT = limit_dict[config["dataset"]]
 
