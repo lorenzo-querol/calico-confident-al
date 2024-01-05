@@ -177,7 +177,8 @@ class DataModule:
         train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
 
         if start_iter:
-            if self.labels_per_class > 0 and sampling_method == None:
+            if self.labels_per_class > 0 and sampling_method == "equal_labels":
+                """Equal number of labels per class"""
                 for i in range(self.n_classes):
                     self.train_labeled_indices.extend(train_indices[train_labels == i][: self.labels_per_class])
                     self.train_unlabeled_indices.extend(train_indices[train_labels == i][self.labels_per_class :])
@@ -193,7 +194,13 @@ class DataModule:
                 self.train_labeled_indices = train_indices
                 self.train_unlabeled_indices = []
         else:
-            if sampling_method == "random":
+            if self.labels_per_class > 0 and sampling_method == "equal_labels":
+                """Equal number of labels per class"""
+                for i in range(self.n_classes):
+                    self.train_labeled_indices.extend(train_indices[train_labels == i][: self.labels_per_class])
+                    self.train_unlabeled_indices.extend(train_indices[train_labels == i][self.labels_per_class :])
+
+            elif sampling_method == "random":
                 """Random sampling"""
                 init_size = min(init_size, len(train_indices))
                 self.train_labeled_indices = np.random.choice(train_indices, init_size, replace=False)
