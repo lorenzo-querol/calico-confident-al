@@ -2,7 +2,7 @@
 
 export CUDA_VISIBLE_DEVICES="0,1,2,3"
 
-accelerate launch train_jempp.py \
+accelerate launch --main_process_port 29501 train_jempp.py \
     --model yopo \
     --lr 0.1 \
     --optimizer sgd \
