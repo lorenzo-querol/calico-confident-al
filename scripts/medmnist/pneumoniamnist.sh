@@ -9,7 +9,7 @@ accelerate launch train_jempp.py \
     --lr 0.1 \
     --optimizer sgd \
     --norm batch \
-    --n_epochs 1 \
+    --n_epochs 150 \
     --decay_epochs 50 100 125 \
     --p_x_weight 1.0 \
     --p_y_x_weight 1.0 \
@@ -20,5 +20,5 @@ accelerate launch train_jempp.py \
     --labels_per_class 100 \
     --dataset $dataset \
     --experiment_type equal_jempp_sgd \
+    --enable_tracking \
     --calibrated \
-    # --enable_tracking \

@@ -2,7 +2,7 @@
 
 export CUDA_VISIBLE_DEVICES="3"
 
-for d in pneumoniamnist dermamnist bloodmnist
+for d in organsmnist
     do
     for i in {0..9}
         do 

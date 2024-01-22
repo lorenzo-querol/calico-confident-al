@@ -451,6 +451,11 @@ limit_dict = {
     "organcmnist": 4000,
 }
 
+equal_dict = {
+    "pneumoniamnist": 2400,
+    "bloodmnist": 6400,
+}
+
 
 def main(config):
     accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None)
@@ -483,7 +488,7 @@ def main(config):
         category_mean(dload_train=dload_train, datamodule=datamodule)
 
     n_iters = len(datamodule.full_train) // config["query_size"]
-    limit = limit_dict[config["dataset"]]
+    limit = limit_dict[config["dataset"]] if config["labels_per_class"] == 0 else equal_dict[config["dataset"]]
     experiment_name = get_experiment_name(**config)
     init_size = config["labels_per_class"]
 
@@ -523,13 +528,15 @@ def main(config):
         if len(train_labeled_inds) >= limit:
             accelerator.print(f"Training complete with {len(train_labeled_inds)} labeled samples.")
             break
-
+        
         """
             ---ACTIVE LEARNING STEP---
             - Use f to query samples from the unlabeled pool.
         """
         if config["labels_per_class"] == 0:
-            inds_to_fix = datamodule.query_samples(trained_f, dload_train_unlabeled, train_unlabeled_inds, config["query_size"], accelerator=accelerator)
+            inds_to_fix = datamodule.query_samples(
+                trained_f, dload_train_unlabeled, train_unlabeled_inds, config["query_size"], accelerator=accelerator
+            )
             (
                 dload_train,
                 dload_train_labeled,
