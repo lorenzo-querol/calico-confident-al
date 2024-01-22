@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
+export CUDA_VISIBLE_DEVICES="0,1,3,4"
 
 accelerate launch train_jempp.py \
     --model yopo \
@@ -16,6 +16,6 @@ accelerate launch train_jempp.py \
     --in_steps 5 \
     --query_size 2500 \
     --dataset cifar10 \
-    --experiment_type active_calibrated \
+    --experiment_type active_jempp_sgd \
     --calibrated \
     --enable_tracking \

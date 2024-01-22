@@ -1,6 +1,8 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
+export CUDA_VISIBLE_DEVICES="0,1,3,4"
+
+dataset=bloodmnist
 
 accelerate launch train_jempp.py \
     --model yopo \
@@ -15,8 +17,8 @@ accelerate launch train_jempp.py \
     --n_steps 10 \
     --in_steps 5 \
     --query_size 250 \
-    --dataset bloodmnist \
-    --experiment_type baseline \
+    --dataset $dataset \
+    --labels_per_class 100 \
+    --experiment_type equal_jempp_sgd \
     --enable_tracking \
-    # --calibrated \
-
+    --calibrated \

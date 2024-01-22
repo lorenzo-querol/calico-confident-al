@@ -20,7 +20,7 @@ import numpy as np
 import torch as t
 import torch.nn as nn
 import torchvision as tv
-from accelerate import Accelerator, InitProcessGroupKwargs
+from accelerate import Accelerator
 from accelerate.utils import set_seed
 from netcal.metrics import ECE
 from torch.distributions.multivariate_normal import MultivariateNormal
@@ -28,7 +28,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from DataModule import DataModule
-from models.JEM import get_model_and_buffer, get_optimizer, get_scheduler
+from models.JEM import get_model_and_buffer, get_optimizer
 from utils import Hamiltonian, get_experiment_name, parse_args
 
 conditionals = []
@@ -53,9 +53,7 @@ def init_random(datamodule, bs):
     return t.clamp(new, -1, 1).cpu()
 
 
-def init_from_centers(
-    device, datamodule: DataModule, buffer_size: int, load_path: str = None, **config
-):
+def init_from_centers(device, datamodule: DataModule, buffer_size: int, load_path: str = None, **config):
     global conditionals
 
     if load_path is not None:
@@ -77,9 +75,7 @@ def init_from_centers(
             mean,
             covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(img_shape))).to(device),
         )
-        buffer.append(
-            dist.sample((bs // n_classes,)).view((bs // n_classes,) + img_shape).cpu()
-        )
+        buffer.append(dist.sample((bs // n_classes,)).view((bs // n_classes,) + img_shape).cpu())
         conditionals.append(dist)
 
     return t.clamp(t.cat(buffer), -1, 1)
@@ -89,9 +85,7 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
     if len(replay_buffer) == 0:
         return init_random(datamodule, bs), []
 
-    buffer_size = (
-        len(replay_buffer) if y is None else len(replay_buffer) // datamodule.n_classes
-    )
+    buffer_size = len(replay_buffer) if y is None else len(replay_buffer) // datamodule.n_classes
     inds = t.randint(0, buffer_size, (bs,))
 
     # If conditional, convert inds to class-conditional inds
@@ -106,27 +100,10 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
     return samples.to("cuda"), inds
 
 
-def sample_q(
-    f,
-    accelerator,
-    datamodule,
-    replay_buffer,
-    batch_size,
-    n_steps,
-    in_steps,
-    sgld_std,
-    sgld_lr,
-    pyld_lr,
-    eps,
-    y=None,
-    save=True,
-    **config,
-):
+def sample_q(f, accelerator, datamodule, replay_buffer, batch_size, n_steps, in_steps, sgld_std, sgld_lr, pyld_lr, eps, y=None, save=True, **config):
     bs = batch_size
 
-    init_sample, buffer_inds = sample_p_0(
-        replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config
-    )
+    init_sample, buffer_inds = sample_p_0(replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config)
     x_k = t.autograd.Variable(init_sample, requires_grad=True)
 
     if in_steps > 0:
@@ -154,9 +131,7 @@ def sample_q(
         for i in range(in_steps):
             H = Hamiltonian_func(tmp_inp, p)
 
-            eta_grad = t.autograd.grad(
-                H, [tmp_inp], only_inputs=True, retain_graph=True
-            )[0]
+            eta_grad = t.autograd.grad(H, [tmp_inp], only_inputs=True, retain_graph=True)[0]
             eta_step = t.clamp(eta_grad, -eps, eps) * pyld_lr
 
             tmp_inp.data = tmp_inp.data + eta_step
@@ -233,7 +208,7 @@ def train_model(
 
     cur_iter = 0
     new_lr = config["lr"]
-    best_val_loss, best_val_acc = np.inf, 0.0
+    best_val_loss, best_val_acc, best_val_ece = np.inf, 0.0, 0.0
     best_ckpt_path = None
 
     for epoch in range(config["n_epochs"]):
@@ -338,9 +313,7 @@ def train_model(
             all_losses.extend(loss.item() for loss in losses)
             all_corrects.extend(correct.item() for correct in corrects)
 
-        all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape(
-            (-1, datamodule.n_classes)
-        )
+        all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
         all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
 
         val_ece = ECE(10).measure(all_confs, all_gts)
@@ -349,10 +322,8 @@ def train_model(
 
         """Check if current valid loss is the best"""
         if val_loss < best_val_loss:
-            best_val_loss, best_val_acc = val_loss, val_acc
-            accelerator.print(
-                f"New Val Loss: {best_val_loss:.4f} \t Val Accuracy: {val_acc:.4f}"
-            )
+            best_val_loss, best_val_acc, best_val_ece = val_loss, val_acc, val_ece
+            accelerator.print(f"BEST val_loss: {best_val_loss:.4f}", f"val_acc: {best_val_acc:.4f}", f"val_ece: {best_val_ece:.4f}", sep="\t")
 
             if accelerator.is_main_process:
                 if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
@@ -370,9 +341,7 @@ def train_model(
 
         """---LOGGING AND CHECKPOINTING---"""
 
-        if (epoch + (config["n_epochs"] * iter_num)) % config[
-            "sample_every_n_epochs"
-        ] == 0 and config["p_x_weight"] > 0:
+        if (epoch + (config["n_epochs"] * iter_num)) % config["sample_every_n_epochs"] == 0 and config["p_x_weight"] > 0:
             with accelerator.no_sync(f):
                 x_q = sample_q(f, accelerator, datamodule, replay_buffer, **config)
 
@@ -394,7 +363,7 @@ def train_model(
         epoch_loss_l2 /= len(dload_train)
 
         accelerator.print(
-            f"loss: {epoch_loss:.4f} ",
+            f"loss: {epoch_loss:.4f}",
             f"acc: {epoch_acc:.4f}",
             f"loss_p_x: {epoch_loss_p_x:.4f}",
             f"loss_l2: {epoch_loss_l2:.4f}",
@@ -407,7 +376,6 @@ def train_model(
 
         if config["enable_tracking"]:
             log_values = {
-                "num_labeled": len(datamodule.train_labeled_indices),
                 "epoch": epoch + (config["n_epochs"] * iter_num) + 1,
                 "loss": epoch_loss,
                 "loss_p_x": epoch_loss_p_x,
@@ -420,6 +388,33 @@ def train_model(
             }
             accelerator.log(log_values)
 
+    """Log the final epoch"""
+    if config["enable_tracking"]:
+        accelerator.log(
+            {
+                "num_labeled": len(datamodule.train_labeled_indices),
+                "loss": epoch_loss,
+                "loss_p_x": epoch_loss_p_x,
+                "loss_l2": epoch_loss_l2,
+                "loss_p_y_x": epoch_loss_p_y_x,
+                "acc": epoch_acc,
+                "val_loss": val_loss,
+                "val_acc": val_acc,
+                "val_ece": val_ece,
+            }
+        )
+
+    """Log the best epoch"""
+    if config["enable_tracking"]:
+        accelerator.log(
+            {
+                "num_labeled": len(datamodule.train_labeled_indices),
+                "best_val_loss": best_val_loss,
+                "best_val_acc": best_val_acc,
+                "best_val_ece": best_val_ece,
+            }
+        )
+
     """Save the last checkpoint"""
     ckpt_dict = {
         "model_state_dict": accelerator.unwrap_model(f).state_dict(),
@@ -430,10 +425,10 @@ def train_model(
     if accelerator.is_main_process:
         accelerator.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
 
+    return f
 
-def init_logger(
-    experiment_name: str, experiment_type: str, log_dir: str, num_labeled: int = None
-):
+
+def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_labeled: int = None):
     dir_name = f"{experiment_type}_{num_labeled}"
     run_name = experiment_type
 
@@ -445,16 +440,23 @@ def init_logger(
     return logger_kwargs, (ckpt_dir, samples_dir, test_dir)
 
 
-def main(config):
-    global conditionals
+limit_dict = {
+    "cifar10": 40000,
+    "cifar100": 40000,
+    "svhn": 40000,
+    "bloodmnist": 4000,
+    "dermamnist": 4000,
+    "pneumoniamnist": 4000,
+    "organsmnist": 4000,
+    "organcmnist": 4000,
+}
 
+
+def main(config):
     accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None)
     datamodule = DataModule(accelerator=accelerator, **config)
     datamodule.prepare_data()
 
-    experiment_name = get_experiment_name(**config)
-
-    """Randomly initialize the labeled training pool"""
     (
         dload_train,
         dload_train_labeled,
@@ -462,50 +464,49 @@ def main(config):
         dload_valid,
         train_labeled_inds,
         train_unlabeled_inds,
-    ) = datamodule.get_data(sampling_method="random", init_size=config["query_size"])
+    ) = datamodule.get_data(
+        sampling_method="random" if config["labels_per_class"] == 0 else None,
+        init_size=config["query_size"] if config["labels_per_class"] == 0 else None,
+        labels_per_class=config["labels_per_class"] if config["labels_per_class"] > 0 else None,
+        accelerator=accelerator,
+    )
+
+    (
+        dload_train,
+        dload_train_labeled,
+        dload_train_unlabeled,
+        dload_valid,
+    ) = accelerator.prepare(dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid)
 
     """For informative initialization"""
     if not os.path.isfile(f"weights/{datamodule.dataset}_cov.pt"):
         category_mean(dload_train=dload_train, datamodule=datamodule)
 
     n_iters = len(datamodule.full_train) // config["query_size"]
+    limit = limit_dict[config["dataset"]]
+    experiment_name = get_experiment_name(**config)
+    init_size = config["labels_per_class"]
 
-    limit_dict = {
-        "cifar10": 40000,
-        "cifar100": 40000,
-        "svhn": 20000,
-        "bloodmnist": 4000,
-        "dermamnist": 4000,
-        "pneumoniamnist": 4000,
-        "organsmnist": 4000,
-    }
-    LIMIT = limit_dict[config["dataset"]]
+    raw_f, replay_buffer = get_model_and_buffer(datamodule=datamodule, accelerator=accelerator, **config)
+    replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
 
     for i in range(n_iters):
-        conditionals = []
-        f, replay_buffer = get_model_and_buffer(
-            accelerator=accelerator, datamodule=datamodule, **config
-        )
-        replay_buffer = init_from_centers(
-            device=accelerator.device, datamodule=datamodule, **config
-        )
-        optim = get_optimizer(accelerator=accelerator, f=f, **config)
+        if config["optimizer"] == "sgd":
+            raw_f, replay_buffer = get_model_and_buffer(datamodule=datamodule, accelerator=accelerator, **config)
+            replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
 
-        logger_kwargs, dirs = init_logger(
-            experiment_name=experiment_name,
-            experiment_type=config["experiment_type"],
-            log_dir=config["log_dir"],
-            num_labeled=len(train_labeled_inds),
-        )
+        optim = get_optimizer(raw_f, accelerator=accelerator, **config)
+        logger_kwargs, dirs = init_logger(experiment_name, config["experiment_type"], config["log_dir"], len(train_labeled_inds))
 
         if config["enable_tracking"]:
-            accelerator.init_trackers(
-                project_name="JEM", config=config, init_kwargs={"wandb": logger_kwargs}
-            )
+            accelerator.init_trackers(project_name="JEM", config=config, init_kwargs={"wandb": logger_kwargs})
 
-        """---TRAINING---"""
-        train_model(
-            f=f,
+        """
+            ---TRAINING---
+            - Train the model.
+        """
+        trained_f = train_model(
+            f=raw_f,
             optim=optim,
             accelerator=accelerator,
             datamodule=datamodule,
@@ -519,32 +520,55 @@ def main(config):
             **config,
         )
 
-        if len(train_labeled_inds) == LIMIT:
-            accelerator.print(
-                f"Training complete with {len(train_labeled_inds)} labeled samples."
-            )
+        if len(train_labeled_inds) >= limit:
+            accelerator.print(f"Training complete with {len(train_labeled_inds)} labeled samples.")
             break
 
-        """---ACTIVE LEARNING STEP---"""
-        inds_to_fix = datamodule.query_samples(
-            f=f,
-            dload_train_unlabeled=dload_train_unlabeled,
-            train_unlabeled_inds=train_unlabeled_inds,
-            query_size=config["query_size"],
-        )
-        (
-            dload_train,
-            dload_train_labeled,
-            dload_train_unlabeled,
-            dload_valid,
-            train_labeled_inds,
-            train_unlabeled_inds,
-        ) = datamodule.get_data(
-            train_labeled_indices=train_labeled_inds,
-            train_unlabeled_indices=train_unlabeled_inds,
-            indices_to_fix=inds_to_fix,
-            start_iter=False,
-        )
+        """
+            ---ACTIVE LEARNING STEP---
+            - Use f to query samples from the unlabeled pool.
+        """
+        if config["labels_per_class"] == 0:
+            inds_to_fix = datamodule.query_samples(trained_f, dload_train_unlabeled, train_unlabeled_inds, config["query_size"], accelerator=accelerator)
+            (
+                dload_train,
+                dload_train_labeled,
+                dload_train_unlabeled,
+                dload_valid,
+                train_labeled_inds,
+                train_unlabeled_inds,
+            ) = datamodule.get_data(train_labeled_inds, train_unlabeled_inds, inds_to_fix, start_iter=False, accelerator=accelerator)
+
+            (
+                dload_train,
+                dload_train_labeled,
+                dload_train_unlabeled,
+                dload_valid,
+            ) = accelerator.prepare(dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid)
+        else:
+            init_size += config["labels_per_class"]
+
+            (
+                dload_train,
+                dload_train_labeled,
+                dload_train_unlabeled,
+                dload_valid,
+                train_labeled_inds,
+                train_unlabeled_inds,
+            ) = datamodule.get_data(
+                train_labeled_inds,
+                train_unlabeled_inds,
+                sampling_method=None,
+                labels_per_class=init_size,
+                init_size=None,
+                accelerator=accelerator,
+            )
+            (
+                dload_train,
+                dload_train_labeled,
+                dload_train_unlabeled,
+                dload_valid,
+            ) = accelerator.prepare(dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid)
 
     if config["enable_tracking"]:
         accelerator.end_training()
@@ -559,11 +583,7 @@ if __name__ == "__main__":
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
-    config.update(
-        {
-            "experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}_{config["optimizer"]}'
-        }
-    )
+    config.update({"experiment_name": config["dataset"]})
 
     set_seed(config["seed"])
 

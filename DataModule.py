@@ -97,13 +97,7 @@ class DataModule:
             self.n_classes = 100 if self.dataset == "cifar100" else 10
             self.classnames = other_dataset.classes
 
-        elif self.dataset in [
-            "bloodmnist",
-            "organcmnist",
-            "organsmnist",
-            "dermamnist",
-            "pneumoniamnist",
-        ]:
+        elif self.dataset in ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]
@@ -120,13 +114,7 @@ class DataModule:
         transform = self.get_transforms(train=train, augment=augment)
 
         if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
-            other_dataset = OtherDataset(
-                self.dataset,
-                root=self.data_root,
-                split=split,
-                transform=transform,
-                download=False,
-            )
+            other_dataset = OtherDataset(self.dataset, root=self.data_root, split=split, transform=transform, download=False)
             dataset = other_dataset.get_dataset()
 
             return dataset
@@ -140,25 +128,9 @@ class DataModule:
         ]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
-            dataset = DataClass(
-                root=self.data_root, split=split, transform=transform, download=False
-            )
+            dataset = DataClass(root=self.data_root, split=split, transform=transform, download=False)
 
             return dataset
-
-    def prepare_ddp(self):
-        """Prepare dataloaders for Distributed Data Parallel (DDP)."""
-        (
-            self.dload_train,
-            self.dload_train_labeled,
-            self.dload_train_unlabeled,
-            self.dload_valid,
-        ) = self.accelerator.prepare(
-            self.dload_train,
-            self.dload_train_labeled,
-            self.dload_train_unlabeled,
-            self.dload_valid,
-        )
 
     def get_data(
         self,
@@ -168,7 +140,11 @@ class DataModule:
         sampling_method: str = None,
         init_size: int = None,
         start_iter: bool = True,
+        accelerator: Accelerator = None,
+        labels_per_class: int = None,
     ):
+        print_fn = accelerator.print if accelerator else print
+
         self.train_labeled_indices = train_labeled_indices
         self.train_unlabeled_indices = train_unlabeled_indices
 
@@ -177,83 +153,44 @@ class DataModule:
 
         """Semi-Supervised Learning"""
         train_indices = np.array(self.all_train_indices)
-        train_labels = np.array(
-            [np.squeeze(self.full_train[ind][1]) for ind in train_indices]
-        )
+        train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
 
         if start_iter:
-            if self.labels_per_class > 0 and sampling_method == "equal_labels":
+            if labels_per_class is not None:
+                print_fn(f"Labels per class: {labels_per_class}")
+
                 self.train_labeled_indices = []
                 self.train_unlabeled_indices = []
                 """Equal number of labels per class"""
                 for i in range(self.n_classes):
-                    self.train_labeled_indices.extend(
-                        train_indices[train_labels == i][: self.labels_per_class]
-                    )
-                    self.train_unlabeled_indices.extend(
-                        train_indices[train_labels == i][self.labels_per_class :]
-                    )
+                    self.train_labeled_indices.extend(train_indices[train_labels == i][:labels_per_class])
+                    self.train_unlabeled_indices.extend(train_indices[train_labels == i][labels_per_class:])
 
             elif sampling_method == "random" and init_size is not None:
                 """Random sampling"""
-                self.train_labeled_indices = np.random.choice(
-                    train_indices, init_size, replace=False
-                )
-                self.train_unlabeled_indices = np.setdiff1d(
-                    train_indices, self.train_labeled_indices
-                )
+                self.train_labeled_indices = np.random.choice(train_indices, init_size, replace=False)
+                self.train_unlabeled_indices = np.setdiff1d(train_indices, self.train_labeled_indices)
 
             else:
                 """Use all training data"""
                 self.train_labeled_indices = train_indices
                 self.train_unlabeled_indices = []
         else:
-            self.train_labeled_indices = np.append(
-                self.train_labeled_indices, indices_to_fix
-            )
+            self.train_labeled_indices = np.append(self.train_labeled_indices, indices_to_fix)
             indices = np.argwhere(np.isin(self.train_unlabeled_indices, indices_to_fix))
-            self.train_unlabeled_indices = np.delete(
-                self.train_unlabeled_indices, indices
-            )
+            self.train_unlabeled_indices = np.delete(self.train_unlabeled_indices, indices)
 
-        if self.accelerator is None:
-            print(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
-            print(
-                f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}"
-            )
-        else:
-            self.accelerator.print(
-                f"Current Labeled Train Indices: {len(self.train_labeled_indices)}"
-            )
-            self.accelerator.print(
-                f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}"
-            )
+        print_fn(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
+        print_fn(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
 
-        self.labeled = Subset(
-            self._dataset_function("train", train=True, augment=True),
-            indices=self.train_labeled_indices,
-        )
-        self.unlabeled = Subset(
-            self._dataset_function("train", train=False, augment=False),
-            indices=self.train_unlabeled_indices,
-        )
+        self.labeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_labeled_indices)
+        self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
         self.valid = self._dataset_function("val", train=False, augment=False)
 
-        self.dload_train = self.create_dataloader(
-            self.full_train, train=True, drop_last=False
-        )
-        self.dload_train_labeled = cycle(
-            self.create_dataloader(self.labeled, train=True)
-        )
-        self.dload_train_unlabeled = (
-            self.create_dataloader(self.unlabeled, shuffle=False)
-            if len(self.train_unlabeled_indices) > 0
-            else None
-        )
+        self.dload_train = self.create_dataloader(self.full_train, train=True, drop_last=False)
+        self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, train=True))
+        self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, shuffle=False) if len(self.train_unlabeled_indices) > 0 else None
         self.dload_valid = self.create_dataloader(self.valid, shuffle=False)
-
-        if t.cuda.device_count() > 1:
-            self.prepare_ddp()
 
         return (
             self.dload_train,
@@ -264,16 +201,12 @@ class DataModule:
             self.train_unlabeled_indices,
         )
 
-    def create_dataloader(
-        self,
-        dataset,
-        shuffle: bool = True,
-        drop_last: bool = False,
-        train: bool = False,
-    ):
+    def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = False, train: bool = False):
+        batch_sizes = {"cifar10": 2500, "cifar100": 2500, "svhn": 2500}
+
         return DataLoader(
             dataset,
-            batch_size=self.batch_size if train else 1000,
+            batch_size=self.batch_size if train else (batch_sizes[self.dataset] if self.dataset in batch_sizes else 250),
             shuffle=shuffle,
             num_workers=0,
             drop_last=drop_last,
@@ -282,9 +215,7 @@ class DataModule:
 
     def get_test_data(self):
         self.test = self._dataset_function("test", train=False, augment=False)
-        self.dload_test = self.create_dataloader(
-            self.test, shuffle=True, drop_last=False
-        )
+        self.dload_test = self.create_dataloader(self.test, shuffle=False, drop_last=False)
 
         return self.dload_test
 
@@ -294,6 +225,7 @@ class DataModule:
         dload_train_unlabeled: DataLoader,
         train_unlabeled_inds: list[int],
         query_size: int,
+        accelerator: Accelerator = None,
     ):
         confs, confs_to_fix = [], []
 
@@ -301,18 +233,15 @@ class DataModule:
         progress_bar = tqdm(
             dload_train_unlabeled,
             desc="Predicting",
-            disable=not self.accelerator.is_main_process if self.accelerator else True,
+            disable=not accelerator.is_main_process if accelerator else True,
         )
-        device = self.accelerator.device if self.accelerator else "cuda"
+        device = accelerator.device if accelerator else "cuda"
 
-        for i, (x_p_d, y_p_d) in enumerate(progress_bar):
+        for _, (x_p_d, y_p_d) in enumerate(progress_bar):
             x_p_d, y_p_d = x_p_d.to(device), y_p_d.to(device).squeeze().long()
 
             with t.no_grad():
-                if self.accelerator:
-                    logits = self.accelerator.unwrap_model(f).classify(x_p_d)
-                else:
-                    logits = f.classify(x_p_d)
+                logits = accelerator.unwrap_model(f).classify(x_p_d) if accelerator else f.classify(x_p_d)
 
             confs.extend(nn.functional.softmax(logits, dim=1).detach().cpu().numpy())
 
@@ -326,23 +255,27 @@ class DataModule:
         query_size = min(query_size, len(train_unlabeled_inds))
 
         confs_to_fix.sort(key=lambda x: x[0])
-
         confs_to_fix = confs_to_fix[:query_size]
         inds_to_fix = [ind for _, ind in confs_to_fix]
         inds_to_fix.sort()
 
-        if self.accelerator:
-            self.accelerator.print(f"Length of inds to fix: {len(inds_to_fix)}")
-        else:
-            print(f"Length of inds to fix: {len(inds_to_fix)}")
+        accelerator.print(f"Length of inds to fix: {len(inds_to_fix)}") if accelerator else print(f"Length of inds to fix: {len(inds_to_fix)}")
 
         return inds_to_fix
 
     def get_class_distribution(self):
-        class_labels = [
-            self.classnames[self.full_train[idx][1][0]]
-            for idx in self.train_labeled_indices
-        ]
+        class_labels = [self.classnames[self.full_train[idx][1][0]] for idx in self.train_labeled_indices]
+        num_samples_added_per_class = defaultdict(int)
+
+        for label in class_labels:
+            num_samples_added_per_class[label] += 1
+
+        counts = sorted(num_samples_added_per_class.items(), key=lambda x: x[0])
+
+        return counts
+
+    def get_full_distribution(self):
+        class_labels = [self.classnames[self.full_train[idx][1][0]] for idx in self.all_train_indices]
         num_samples_added_per_class = defaultdict(int)
 
         for label in class_labels:

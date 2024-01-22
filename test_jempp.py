@@ -1,7 +1,5 @@
 import os
 from pathlib import Path
-from pkgutil import get_data
-from venv import logger
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,10 +11,9 @@ from netcal.metrics import ECE
 from netcal.presentation import ReliabilityDiagram
 from tqdm import tqdm
 
-import wandb
 from DataModule import DataModule
 from models.JEM import F
-from utils import get_directories, get_experiment_name, get_logger_kwargs, parse_args
+from utils import get_directories, parse_args
 
 
 def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled: int):
@@ -64,12 +61,10 @@ def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled:
     all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
     all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
 
-    ece, diagram = ECE(10), ReliabilityDiagram(10)
+    bins = 10
+    ece, diagram = ECE(bins), ReliabilityDiagram(bins)
     calibration_score = ece.measure(all_confs, all_gts)
-    pl = diagram.plot(all_confs, all_gts)
-
-    with open("results.txt", "a") as f:
-        f.write(f'Seed: {config["seed"]}\tTest Loss: {test_loss}\tTest Acc: {test_acc}\t ECE: {calibration_score}\n')
+    pl = diagram.plot(all_confs, all_gts, dpi=600)
 
     test_metrics = {"test_loss": test_loss, "test_acc": test_acc, "test_ece": calibration_score}
     test_metrics = pd.DataFrame(test_metrics, index=[0])
@@ -77,7 +72,10 @@ def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled:
     accuracy_per_class = pd.DataFrame(accuracy_per_class, index=[0])
 
     class_distribution = datamodule.get_class_distribution()
-    class_distribution = pd.DataFrame(class_distribution, columns=["Class", "Num Samples"])
+    class_distribution = pd.DataFrame([dict(class_distribution)], index=[0])
+
+    full_distribution = datamodule.get_full_distribution()
+    full_distribution = pd.DataFrame([dict(full_distribution)], index=[0])
 
     if not os.path.exists(test_dir):
         os.makedirs(test_dir, exist_ok=True)
@@ -88,25 +86,23 @@ def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled:
     test_metrics.to_csv(f"{test_dir}/test_metrics.csv", index=False)
     accuracy_per_class.to_csv(f"{test_dir}/accuracy_per_class.csv", index=False)
     class_distribution.to_csv(f"{test_dir}/class_distribution.csv", index=False)
+    full_distribution.to_csv(f"{test_dir}/full_distribution.csv", index=False)
 
     print(f"Test Loss: {test_loss} | Test Accuracy: {test_acc} | ECE: {calibration_score}")
-
-    if config["enable_tracking"]:
-        wandb.log({"num_labeled": num_labeled, "test_loss": test_loss, "test_acc": test_acc, "test_ece": calibration_score})
 
 
 def get_ckpts(ckpt_dir: str, experiment_type: str):
     ckpts = list(Path(ckpt_dir).rglob("*"))
     ckpts = [ckpt for ckpt in ckpts if not ckpt.is_dir()]
-    ckpts = [ckpt for ckpt in ckpts if not "last" in ckpt.name]
+    ckpts = [ckpt for ckpt in ckpts if "last" in ckpt.name]
     ckpts = [str(ckpt) for ckpt in ckpts]
     ckpts = [ckpt for ckpt in ckpts if experiment_type in ckpt]
 
     ckpt_dicts = []
     for ckpt in ckpts:
         path = ckpt.split("/")
-        experiment_type, num_labeled = path[-2].split("_")
-
+        experiment_type, calibrated, optim, num_labeled = path[-2].split("_")
+        experiment_type = f"{experiment_type}_{calibrated}_{optim}"
         ckpt_dicts.append({"experiment_type": experiment_type, "path": ckpt, "num_labeled": int(num_labeled)})
 
     ckpt_dicts = sorted(ckpt_dicts, key=lambda x: int(x["num_labeled"]))
@@ -117,21 +113,18 @@ def get_ckpts(ckpt_dir: str, experiment_type: str):
 def main(config):
     datamodule = DataModule(accelerator=None, **config)
     datamodule.prepare_data()
-    dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_inds, train_unlabeled_inds = datamodule.get_data(
-        sampling_method="random",
-        init_size=config["query_size"],
-    )
+    (
+        dload_train,
+        dload_train_labeled,
+        dload_train_unlabeled,
+        dload_valid,
+        train_labeled_inds,
+        train_unlabeled_inds,
+    ) = datamodule.get_data(sampling_method="random", init_size=config["query_size"])
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
-
-    config.update({"experiment_name": get_experiment_name(**config)})
-
     ckpt_dir, _, test_dir = get_directories(**config)
 
     f = F(n_channels=datamodule.img_shape[0], n_classes=datamodule.n_classes, **config).to(device)
-
-    if config["enable_tracking"]:
-        logger_kwargs = get_logger_kwargs(**config)
-        wandb.init(project="JEM", config=config, tags=["test", config["experiment_type"]], **logger_kwargs)
 
     for ckpt_dict in get_ckpts(ckpt_dir, config["experiment_type"]):
         experiment_type, path, num_labeled = ckpt_dict.values()
@@ -139,32 +132,24 @@ def main(config):
         """Load the best checkpoint"""
         print(f"Loading best checkpoint from {path}.")
         f.load_state_dict(t.load(path)["model_state_dict"])
-        f.to("cuda")
+        f.to(device)
 
         """---TESTING---"""
         folder_name = f"{test_dir}/{experiment_type}_{num_labeled}"
         test_model(f=f, datamodule=datamodule, test_dir=folder_name, num_labeled=num_labeled)
 
         if len(train_labeled_inds) == 4000:
-            print("Reached 4000 labeled samples. Finished testing.")
             break
 
-        """---ACTIVE LEARNING STEP---"""
-        inds_to_fix = datamodule.query_samples(
-            f=f,
-            dload_train_unlabeled=dload_train_unlabeled,
-            train_unlabeled_inds=train_unlabeled_inds,
-            query_size=config["query_size"],
-        )
-        dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_inds, train_unlabeled_inds = datamodule.get_data(
-            train_labeled_indices=train_labeled_inds,
-            train_unlabeled_indices=train_unlabeled_inds,
-            indices_to_fix=inds_to_fix,
-            start_iter=False,
-        )
-
-    if config["enable_tracking"]:
-        wandb.finish()
+        inds_to_fix = datamodule.query_samples(f, dload_train_unlabeled, train_unlabeled_inds, config["query_size"])
+        (
+            dload_train,
+            dload_train_labeled,
+            dload_train_unlabeled,
+            dload_valid,
+            train_labeled_inds,
+            train_unlabeled_inds,
+        ) = datamodule.get_data(train_labeled_inds, train_unlabeled_inds, inds_to_fix, start_iter=False)
 
 
 if __name__ == "__main__":
