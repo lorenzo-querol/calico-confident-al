@@ -1,43 +1,27 @@
 import os
+import shutil
 
-# get the current working directory
-cwd = "runs/bloodmnist_epoch_150_sgd/checkpoints/"
 
-# get the list of folders in the current working directory
-folders = os.listdir(cwd)
+def copy_files(src_dir, dst_dir):
+    for dirpath, dirnames, filenames in os.walk(src_dir):
+        dst_subdir = dirpath.replace(src_dir, dst_dir)
+        if not os.path.exists(dst_subdir):
+            os.makedirs(dst_subdir)
 
-for folder in folders:
-    # check if the folder name contains the string 'active'
-    if "active" in folder:
-        # my folder name is in the format 'active_NUMBER' I want to insert the word 'calibrated between active and NUMBER
-        # so I split the string at the underscore and insert the word calibrated
-        new_folder = folder.split("_")
-        new_folder.insert(1, "calibrated")
-        new_folder = "_".join(new_folder)
-        # create the new folder name
-        new_folder = cwd + new_folder
-        # create the old folder name
-        folder = cwd + folder
-        # rename the folder
-        os.rename(folder, new_folder)
-        # print the new folder name
-        print(new_folder)
+        for filename in filenames:
+            src_file = os.path.join(dirpath, filename)
+            dst_file = os.path.join(dst_subdir, filename)
 
-if "samples" not in cwd:
-    for folder in folders:
-        # check if the folder name contains the string 'active'
-        if "baseline" in folder:
-            # my folder name is in the format 'baseline_NUMBER' I want to replace baseline with active and insert the word uncalibrated between active and NUMBER
-            # so I split the string at the underscore and insert the word calibrated
-            new_folder = folder.split("_")
-            new_folder[0] = "active"
-            new_folder.insert(1, "uncalibrated")
-            new_folder = "_".join(new_folder)
-            # create the new folder name
-            new_folder = cwd + new_folder
-            # create the old folder name
-            folder = cwd + folder
-            # rename the folder
-            os.rename(folder, new_folder)
-            # print the new folder name
-            print(new_folder)
+            if os.path.exists(dst_file):
+                base, extension = os.path.splitext(dst_file)
+                i = 1
+                while os.path.exists(dst_file):
+                    dst_file = f"{base}_{i}{extension}"
+                    i += 1
+            shutil.copy2(src_file, dst_file)
+
+
+# Usage
+src_dir = "/path/to/source/directory"
+dst_dir = "/path/to/destination/directory"
+copy_files(src_dir, dst_dir)
