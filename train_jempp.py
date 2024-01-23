@@ -492,14 +492,13 @@ def main(config):
     experiment_name = get_experiment_name(**config)
     init_size = config["labels_per_class"]
 
-    raw_f, replay_buffer = get_model_and_buffer(datamodule=datamodule, accelerator=accelerator, **config)
-    replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
+    # raw_f, replay_buffer = get_model_and_buffer(datamodule=datamodule, accelerator=accelerator, **config)
+    # replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
 
     for i in range(n_iters):
-        if config["optimizer"] == "sgd":
-            raw_f, replay_buffer = get_model_and_buffer(datamodule=datamodule, accelerator=accelerator, **config)
-            replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
-
+        # if config["optimizer"] == "sgd":
+        raw_f, replay_buffer = get_model_and_buffer(datamodule=datamodule, accelerator=accelerator, **config)
+        replay_buffer = init_from_centers(device=accelerator.device, datamodule=datamodule, **config)
         optim = get_optimizer(raw_f, accelerator=accelerator, **config)
         logger_kwargs, dirs = init_logger(experiment_name, config["experiment_type"], config["log_dir"], len(train_labeled_inds))
 

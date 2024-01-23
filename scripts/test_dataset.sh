@@ -1,16 +1,16 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES="3"
+export CUDA_VISIBLE_DEVICES="1"
 
-for d in organsmnist
+for d in pneumoniamnist
     do
     for i in {0..9}
         do 
         python test_jempp.py \
             --model yopo \
-            --lr 0.1 \
-            --optimizer sgd \
-            --norm batch \
+            --lr 0.0001 \
+            --optimizer adam \
+            --norm none \
             --n_epochs 150 \
             --decay_epochs 50 100 125 \
             --p_x_weight 1.0 \
@@ -21,7 +21,7 @@ for d in organsmnist
             --query_size 250 \
             --dataset $d \
             --experiment_name $d \
-            --experiment_type active_softmax_sgd \
+            --experiment_type active_softmax_adam \
             --seed $i
     done
 done

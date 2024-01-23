@@ -155,6 +155,6 @@ def get_logger_kwargs(experiment_name: str, experiment_type: str, seed: int, **c
 def get_directories(log_dir: str, experiment_name: str, seed: int, **config):
     ckpt_dir = os.path.join(log_dir, experiment_name, "checkpoints")
     samples_dir = os.path.join(log_dir, experiment_name, "samples")
-    test_dir = os.path.join(log_dir, experiment_name, "test", f"seed_{seed}")
+    test_dir = os.path.join("test", experiment_name, f"seed_{seed}")
 
     return ckpt_dir, samples_dir, test_dir
