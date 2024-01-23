@@ -116,6 +116,7 @@ def parse_args():
     parser.add_argument("--ckpt_every_n_epochs", type=int, default=None)
     parser.add_argument("--sample_every_n_epochs", type=int, default=10)
     parser.add_argument("--enable_tracking", action="store_true")
+    parser.add_argument("--multi_gpu", action="store_true")
 
     parser.add_argument("--run_once", action="store_true")
 

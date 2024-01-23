@@ -24,13 +24,13 @@ def cycle(loader):
 class DataModule:
     def __init__(
         self,
-        accelerator: Accelerator,
         sigma: float,
         batch_size: int,
         labels_per_class: int,
         data_root: str,
         dataset: str,
         query_size: int,
+        accelerator: Accelerator = None,
         **config,
     ):
         self.accelerator = accelerator
@@ -156,21 +156,20 @@ class DataModule:
         train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
 
         if start_iter:
-            if labels_per_class is not None:
-                print_fn(f"Labels per class: {labels_per_class}")
+            if sampling_method == "equal":
+                """Equal number of labels per class"""
+                assert labels_per_class is not None, "labels_per_class must be specified for equal sampling"
 
                 self.train_labeled_indices = []
                 self.train_unlabeled_indices = []
-                """Equal number of labels per class"""
+
                 for i in range(self.n_classes):
                     self.train_labeled_indices.extend(train_indices[train_labels == i][:labels_per_class])
                     self.train_unlabeled_indices.extend(train_indices[train_labels == i][labels_per_class:])
-
-            elif sampling_method == "random" and init_size is not None:
+            elif sampling_method == "random":
                 """Random sampling"""
                 self.train_labeled_indices = np.random.choice(train_indices, init_size, replace=False)
                 self.train_unlabeled_indices = np.setdiff1d(train_indices, self.train_labeled_indices)
-
             else:
                 """Use all training data"""
                 self.train_labeled_indices = train_indices
@@ -191,6 +190,14 @@ class DataModule:
         self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, train=True))
         self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, shuffle=False) if len(self.train_unlabeled_indices) > 0 else None
         self.dload_valid = self.create_dataloader(self.valid, shuffle=False)
+
+        if accelerator:
+            (
+                self.dload_train,
+                self.dload_train_labeled,
+                self.dload_train_unlabeled,
+                self.dload_valid,
+            ) = accelerator.prepare(self.dload_train, self.dload_train_labeled, self.dload_train_unlabeled, self.dload_valid)
 
         return (
             self.dload_train,
@@ -235,7 +242,8 @@ class DataModule:
             desc="Predicting",
             disable=not accelerator.is_main_process if accelerator else True,
         )
-        device = accelerator.device if accelerator else "cuda"
+        device = accelerator.device if accelerator else t.device("cuda")
+        print_fn = accelerator.print if accelerator else print
 
         for _, (x_p_d, y_p_d) in enumerate(progress_bar):
             x_p_d, y_p_d = x_p_d.to(device), y_p_d.to(device).squeeze().long()
@@ -259,7 +267,7 @@ class DataModule:
         inds_to_fix = [ind for _, ind in confs_to_fix]
         inds_to_fix.sort()
 
-        accelerator.print(f"Length of inds to fix: {len(inds_to_fix)}") if accelerator else print(f"Length of inds to fix: {len(inds_to_fix)}")
+        print_fn(f"Length of inds to fix: {len(inds_to_fix)}")
 
         return inds_to_fix
 

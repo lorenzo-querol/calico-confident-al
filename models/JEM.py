@@ -32,7 +32,7 @@ def init_random(img_shape: tuple[int, int, int], buffer_size: int):
     return t.FloatTensor(buffer_size, n_channels, img_size, img_size).uniform_(-1, 1)
 
 
-def get_model_and_buffer(datamodule: DataModule, buffer_size: int, load_path: str = None, accelerator: Accelerator = None, **config):
+def get_model_and_buffer(datamodule: DataModule, buffer_size: int, load_path: str = None, accelerator: Accelerator = None, device=None, **config):
     """
     Gets the model and the replay buffer.
 
@@ -47,13 +47,12 @@ def get_model_and_buffer(datamodule: DataModule, buffer_size: int, load_path: st
     if load_path:
         f.load_state_dict(t.load(load_path)["model_state_dict"])
 
-    if accelerator:
-        f = accelerator.prepare(f)
+    f = accelerator.prepare(f) if accelerator else f.to(device)
 
     return f, init_random(datamodule.img_shape, buffer_size)
 
 
-def get_optimizer(f: nn.Module, load_path: str = None, accelerator: Accelerator = None, **config):
+def get_optimizer(f: nn.Module, load_path: str = None, accelerator: Accelerator = None, device=None, **config):
     """
     Initializes optimizer.
     """
@@ -67,7 +66,6 @@ def get_optimizer(f: nn.Module, load_path: str = None, accelerator: Accelerator 
     if load_path:
         optim.load_state_dict(t.load(load_path)["optimizer_state_dict"])
 
-    if accelerator:
-        optim = accelerator.prepare(optim)
+    optim = accelerator.prepare(optim) if accelerator else optim
 
     return optim
