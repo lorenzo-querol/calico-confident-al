@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
+export CUDA_VISIBLE_DEVICES="0,1"
 
 dataset=organcmnist
 
@@ -17,8 +17,9 @@ accelerate launch train_jempp.py \
     --n_steps 10 \
     --in_steps 5 \
     --query_size 250 \
+    --labels_per_class 35 \
     --dataset $dataset \
-    --experiment_type active_softmax_sgd \
+    --experiment_type equal_jempp_sgd \
     --enable_tracking \
     --multi_gpu \
-    # --calibrated \
+    --calibrated \

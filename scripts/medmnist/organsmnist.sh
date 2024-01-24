@@ -1,10 +1,10 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES="1"
+export CUDA_VISIBLE_DEVICES="2,3"
 
 dataset=organsmnist
 
-python launch train_jempp.py \
+accelerate launch train_jempp.py \
     --model yopo \
     --lr 0.1 \
     --optimizer sgd \
@@ -17,8 +17,9 @@ python launch train_jempp.py \
     --n_steps 10 \
     --in_steps 5 \
     --query_size 250 \
-    --labels_per_class -1 \
+    --labels_per_class 35 \
     --dataset $dataset \
-    --experiment_type random-independent_softmax_sgd \
+    --experiment_type equal_jempp_sgd \
     --enable_tracking \
-    # --calibrated \
+    --multi_gpu \
+    --calibrated \

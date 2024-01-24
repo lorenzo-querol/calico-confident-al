@@ -265,7 +265,7 @@ def train_model(
                         fp_all = f(x_p_d)
                         fp = fp_all.mean()
 
-                        x_q = sample_q(f, accelerator, datamodule, replay_buffer, **config)
+                        x_q = sample_q(f, datamodule, replay_buffer, accelerator=accelerator, **config)
                         fq_all = f(x_q)
                         fq = fq_all.mean()
 
@@ -279,7 +279,7 @@ def train_model(
                     fp_all = f(x_p_d)
                     fp = fp_all.mean()
 
-                    x_q = sample_q(f, accelerator, datamodule, replay_buffer, **config)
+                    x_q = sample_q(f, datamodule, replay_buffer, accelerator=accelerator, **config)
                     fq_all = f(x_q)
                     fq = fq_all.mean()
 
@@ -513,8 +513,10 @@ limit_dict = {
 }
 
 equal_dict = {
-    "pneumoniamnist": 2400,
-    "bloodmnist": 6400,
+    "pneumoniamnist": 2400,  # labels per class 50 / 12 iterations
+    "bloodmnist": 4000,  # labels per class 50 / 10 iterations (4000)
+    "organcmnist": 3850,  # labels per class 35 / 10 iterations (3850)
+    "organsmnist": 3850,  # labels per class 35 / 10 iterations (3850)
 }
 
 
@@ -533,7 +535,7 @@ def main(config):
         train_labeled_inds,
         train_unlabeled_inds,
     ) = datamodule.get_data(
-        sampling_method="random" if config["labels_per_class"] <= 0 else None,
+        sampling_method="random" if config["labels_per_class"] <= 0 else "equal",
         init_size=config["query_size"],
         labels_per_class=config["labels_per_class"],
         accelerator=accelerator,
