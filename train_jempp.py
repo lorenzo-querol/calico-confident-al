@@ -27,10 +27,10 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+import wandb
 from DataModule import DataModule
 from models.JEM import get_model_and_buffer, get_optimizer
 from utils import Hamiltonian, get_experiment_name, parse_args
-import wandb
 
 conditionals = []
 
