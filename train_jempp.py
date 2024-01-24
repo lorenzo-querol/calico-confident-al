@@ -294,7 +294,10 @@ def train_model(
             if config["p_y_x_weight"] > 0:
                 logits = accelerator.unwrap_model(f).classify(x_lab) if accelerator else f.classify(x_lab)
                 loss_p_y_x = nn.functional.cross_entropy(logits, y_lab)
-                acc = (logits.max(1)[1] == y_lab).float().mean()
+                if logits.dim() > 1:
+                    acc = (logits.max(1)[1] == y_lab).float().mean()
+                else:
+                    acc = (logits[0].argmax() == y_lab.item()).float()
                 L += config["p_y_x_weight"] * loss_p_y_x
 
             epoch_loss += L.item()

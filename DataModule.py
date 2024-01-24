@@ -209,11 +209,9 @@ class DataModule:
         )
 
     def create_dataloader(self, dataset, shuffle: bool = True, drop_last: bool = False, train: bool = False):
-        batch_sizes = {"cifar10": 2500, "cifar100": 2500, "svhn": 2500}
-
         return DataLoader(
             dataset,
-            batch_size=self.batch_size if train else (batch_sizes[self.dataset] if self.dataset in batch_sizes else 250),
+            batch_size=self.batch_size if train else 250,
             shuffle=shuffle,
             num_workers=0,
             drop_last=drop_last,
