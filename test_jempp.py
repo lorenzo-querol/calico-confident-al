@@ -110,9 +110,27 @@ def get_ckpts(ckpt_dir: str, experiment_type: str):
     return ckpt_dicts
 
 
+limit_dict = {
+    "cifar10": 40000,
+    "cifar100": 40000,
+    "svhn": 40000,
+    "bloodmnist": 4000,
+    "dermamnist": 4000,
+    "pneumoniamnist": 4000,
+    "organsmnist": 4000,
+    "organcmnist": 4000,
+}
+
+equal_dict = {
+    "pneumoniamnist": 2400,
+    "bloodmnist": 6400,
+}
+
+
 def main(config):
     datamodule = DataModule(accelerator=None, **config)
     datamodule.prepare_data()
+
     (
         dload_train,
         dload_train_labeled,
@@ -120,9 +138,15 @@ def main(config):
         dload_valid,
         train_labeled_inds,
         train_unlabeled_inds,
-    ) = datamodule.get_data(sampling_method="random", init_size=config["query_size"])
+    ) = datamodule.get_data(
+        sampling_method="random" if config["labels_per_class"] <= 0 else "equal",
+        init_size=config["query_size"],
+        labels_per_class=config["labels_per_class"],
+    )
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
     ckpt_dir, _, test_dir = get_directories(**config)
+    limit = limit_dict[config["dataset"]] if config["labels_per_class"] <= 0 else equal_dict[config["dataset"]]
+    labels_per_class = config["labels_per_class"]
 
     f = F(n_channels=datamodule.img_shape[0], n_classes=datamodule.n_classes, **config).to(device)
 
@@ -138,18 +162,49 @@ def main(config):
         folder_name = f"{test_dir}/{experiment_type}_{num_labeled}"
         test_model(f=f, datamodule=datamodule, test_dir=folder_name, num_labeled=num_labeled)
 
-        if len(train_labeled_inds) == 4000:
+        if len(train_labeled_inds) >= limit:
             break
 
-        inds_to_fix = datamodule.query_samples(f, dload_train_unlabeled, train_unlabeled_inds, config["query_size"])
-        (
-            dload_train,
-            dload_train_labeled,
-            dload_train_unlabeled,
-            dload_valid,
-            train_labeled_inds,
-            train_unlabeled_inds,
-        ) = datamodule.get_data(train_labeled_inds, train_unlabeled_inds, inds_to_fix, start_iter=False)
+        # Least confident sampling
+        if config["labels_per_class"] == 0:
+            print(f"Querying {config['query_size']} samples using least confident sampling.")
+            inds_to_fix = datamodule.query_samples(
+                f,
+                dload_train_unlabeled,
+                train_unlabeled_inds,
+                config["query_size"],
+            )
+            (
+                dload_train,
+                dload_train_labeled,
+                dload_train_unlabeled,
+                dload_valid,
+                train_labeled_inds,
+                train_unlabeled_inds,
+            ) = datamodule.get_data(
+                train_labeled_inds,
+                train_unlabeled_inds,
+                inds_to_fix,
+                start_iter=False,
+            )
+
+        # Equal labels sampling
+        elif config["labels_per_class"] > 0:
+            print(f"Querying {config['labels_per_class']} samples per class.")
+            labels_per_class += config["labels_per_class"]
+            (
+                dload_train,
+                dload_train_labeled,
+                dload_train_unlabeled,
+                dload_valid,
+                train_labeled_inds,
+                train_unlabeled_inds,
+            ) = datamodule.get_data(
+                train_labeled_inds,
+                train_unlabeled_inds,
+                sampling_method="equal",
+                labels_per_class=labels_per_class,
+            )
 
 
 if __name__ == "__main__":
