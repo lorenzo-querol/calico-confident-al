@@ -319,7 +319,6 @@ def train_model(
         val_loss, val_acc = np.inf, 0.0
         for inputs, labels in dload_valid:
             inputs, labels = inputs.to(device), labels.to(device).squeeze().long()
-            # labels = labels.squeeze().long()
 
             with t.no_grad():
                 logits = accelerator.unwrap_model(f).classify(inputs) if accelerator else f.classify(inputs)
