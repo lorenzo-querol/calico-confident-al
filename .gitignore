@@ -137,4 +137,3 @@ runs
 weights
 data
 wandb
-*.png
