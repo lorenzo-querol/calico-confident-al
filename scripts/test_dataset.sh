@@ -2,9 +2,9 @@
 
 export CUDA_VISIBLE_DEVICES="1"
 
-for d in organcmnist
+for d in organsmnist
 do
-    for exp_type in active_softmax_sgd
+    for exp_type in equal_jempp_sgd
     do
         for i in {0..4}
         do 
@@ -21,6 +21,7 @@ do
                 --n_steps 10 \
                 --in_steps 5 \
                 --query_size 250 \
+                --labels_per_class 35 \
                 --dataset $d \
                 --experiment_name $d \
                 --experiment_type $exp_type \

@@ -122,8 +122,10 @@ limit_dict = {
 }
 
 equal_dict = {
-    "pneumoniamnist": 2400,
-    "bloodmnist": 6400,
+    "pneumoniamnist": 2400,  # labels per class 50 / 12 iterations
+    "bloodmnist": 4000,  # labels per class 50 / 10 iterations (4000)
+    "organcmnist": 3850,  # labels per class 35 / 10 iterations (3850)
+    "organsmnist": 3850,  # labels per class 35 / 10 iterations (3850)
 }
 
 
