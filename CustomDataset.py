@@ -3,12 +3,10 @@ from torch.utils.data import random_split
 from torchvision import datasets
 
 
-class OtherDataset:
-    def __init__(
-        self, dataset_name, root="./data", split=None, transform=None, download=True
-    ):
+class CustomDataset:
+    def __init__(self, dataset_name, root="./data", split=None, transform=None, download=True):
         """
-        Initialize the SplitCIFARDataset.
+        Initialize the CustomDataset.
 
         Parameters:
         - dataset_name (str): Name of the dataset ('cifar10', 'cifar100', or 'svhn').
@@ -56,9 +54,7 @@ class OtherDataset:
             )
             self.classes = self.dataset.labels
         else:
-            raise ValueError(
-                "Invalid dataset_name. Choose 'cifar10', 'cifar100', or 'svhn'."
-            )
+            raise ValueError("Invalid dataset_name. Choose 'cifar10', 'cifar100', or 'svhn'.")
 
         self.train_dataset, self.val_dataset = self._split_dataset()
         self.get_dataset()
