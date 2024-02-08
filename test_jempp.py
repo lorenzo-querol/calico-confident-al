@@ -64,7 +64,7 @@ def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled:
     bins = 10
     ece, diagram = ECE(bins), ReliabilityDiagram(bins)
     calibration_score = ece.measure(all_confs, all_gts)
-    pl = diagram.plot(all_confs, all_gts, dpi=600)
+    pl = diagram.plot(all_confs, all_gts, tikz=True)
 
     test_metrics = {"test_loss": test_loss, "test_acc": test_acc, "test_ece": calibration_score}
     test_metrics = pd.DataFrame(test_metrics, index=[0])
@@ -80,8 +80,13 @@ def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled:
     if not os.path.exists(test_dir):
         os.makedirs(test_dir, exist_ok=True)
 
-    pl.savefig(f"{test_dir}/reliability_diagram.png")
-    plt.close(pl)
+    if isinstance(pl, str):
+        with open(f"{test_dir}/reliability_diagram.tikz", "w") as f:
+            print(f'Writing to file "{test_dir}/reliability_diagram.tikz".')
+            f.write(pl)
+    else:
+        pl.savefig(f"{test_dir}/reliability_diagram.png")
+        plt.close(pl)
 
     test_metrics.to_csv(f"{test_dir}/test_metrics.csv", index=False)
     accuracy_per_class.to_csv(f"{test_dir}/accuracy_per_class.csv", index=False)

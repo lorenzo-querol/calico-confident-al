@@ -2,11 +2,11 @@
 
 export CUDA_VISIBLE_DEVICES="1"
 
-for d in organsmnist
+for d in organcmnist bloodmnist
 do
-    for exp_type in equal_jempp_sgd
+    for exp_type in active_softmax
     do
-        for i in {0..4}
+        for i in {0..0}
         do 
             python test_jempp.py \
                 --model yopo \
@@ -21,7 +21,6 @@ do
                 --n_steps 10 \
                 --in_steps 5 \
                 --query_size 250 \
-                --labels_per_class 35 \
                 --dataset $d \
                 --experiment_name $d \
                 --experiment_type $exp_type \

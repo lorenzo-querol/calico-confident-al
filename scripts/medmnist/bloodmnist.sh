@@ -19,7 +19,7 @@ accelerate launch train_jempp.py \
     --query_size 250 \
     --labels_per_class 50 \
     --dataset $dataset \
-    --experiment_type equal_jempp_sgd \
+    --experiment_type equal_jempp_sgd2 \
     --enable_tracking \
     --multi_gpu \
     --calibrated \
