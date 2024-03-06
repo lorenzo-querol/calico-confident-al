@@ -23,6 +23,8 @@ def enable_running_stats(model):
 def get_args():
     parser = ArgumentParser()
 
+    parser.add_argument("--test", action="store_true")
+
     # Data
     parser.add_argument("--root_dir", type=str, default="./data")
     parser.add_argument("--sigma", type=float, default=3e-2)
@@ -59,6 +61,7 @@ def get_args():
     parser.add_argument("--rho", type=float, default=2.0)
 
     # Logging
+    parser.add_argument("--ckpt_path", type=str)
     parser.add_argument("--enable_log", action="store_true")
     parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument("--sample_every_n_epochs", type=int, default=10)

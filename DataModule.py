@@ -54,8 +54,8 @@ class DataModule:
         if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
             other_dataset = CustomDataset(self.dataset, root=self.root_dir, split=split, transform=None, download=True)
             self.img_shape = (1, 28, 28) if self.dataset == "mnist" else (3, 32, 32)
-            self.classes = 100 if self.dataset == "cifar100" else 10
-            self.classnames = other_dataset.classes
+            self.n_classes = 100 if self.dataset == "cifar100" else 10
+            self.classes = other_dataset.classes
 
         elif self.dataset in ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
@@ -92,6 +92,7 @@ class DataModule:
     def _setup(self):
         self.train = self._dataset_function("train", train=True, augment=False)
         self.train_indices = t.arange(len(self.train))
+        self.full_train = self._create_dataloader(self.train, shuffle=True, drop_last=True)
 
         self.labeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_indices)
         self.val = self._dataset_function("val", train=False, augment=False)
@@ -106,7 +107,6 @@ class DataModule:
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle, num_workers=0, drop_last=drop_last, pin_memory=True)
 
     def get_train_dataloader(self):
-        self.full_train = self._create_dataloader(self.train, shuffle=True, drop_last=True)
         return self._cycle(self.full_train)
 
     def get_labeled_dataloader(self):

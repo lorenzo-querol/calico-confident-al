@@ -1,12 +1,13 @@
 import torch.nn as nn
 
+from models.ViT import VisionTransformer
 from models.WideResNet import WideResNet
 
 
 class F(nn.Module):
-    def __init__(self, depth: int, width: int, n_classes: int, n_channels: int):
+    def __init__(self, depth: int, width: int, n_classes: int, n_channels: int, norm: str):
         super(F, self).__init__()
-        self.f = WideResNet(depth, width, 0.0, n_channels)
+        self.f = WideResNet(depth, width, n_channels, norm)
         self.energy_output = nn.Linear(self.f.last_dim, 1)
         self.class_output = nn.Linear(self.f.last_dim, n_classes)
 

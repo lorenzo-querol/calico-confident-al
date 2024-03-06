@@ -137,3 +137,5 @@ runs
 weights
 data
 wandb
+checkpoints
+logs
