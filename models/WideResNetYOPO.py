@@ -38,7 +38,6 @@ def conv_init(m):
 class wide_basic(nn.Module):
     def __init__(self, in_planes, planes, dropout_rate, stride=1, norm=None, leak=0.2):
         super(wide_basic, self).__init__()
-        # self.lrelu = nn.LeakyReLU(leak)
         self.lrelu = nn.SiLU()
         self.bn1 = get_norm(in_planes, norm)
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
@@ -75,7 +74,6 @@ class WideResNetYOPO(nn.Module):
         self.in_planes = 16
         self.sum_pool = sum_pool
         self.norm = norm
-        # self.lrelu = nn.LeakyReLU(leak)
         self.lrelu = nn.SiLU()
 
         assert (depth - 4) % 6 == 0, "Wide-resnet depth should be 6n+4"
@@ -107,11 +105,10 @@ class WideResNetYOPO(nn.Module):
     def forward(self, x):
         out = self.conv1(x)
 
-        # for YOPO
+        # For YOPO
         self.layer_one_out = out
         self.layer_one_out.requires_grad_()
         self.layer_one_out.retain_grad()
-        # for YOPO
 
         out = self.layer1(out)
         out = self.layer2(out)

@@ -4,23 +4,15 @@ export CUDA_VISIBLE_DEVICES="1"
 
 dataset=pneumoniamnist
 
-# labels_per_class: -1 activates random sampling
-
 python train_jempp.py \
     --model yopo \
-    --lr 0.1 \
-    --optimizer sgd \
-    --norm batch \
-    --n_epochs 150 \
+    --lr 0.1 --optim sgd --norm batch \
+    --n_epochs 150  \
     --decay_epochs 50 100 125 \
-    --p_x_weight 1.0 \
-    --p_y_x_weight 1.0 \
-    --l2_weight 0.0 \
-    --n_steps 10 \
-    --in_steps 5 \
-    --query_size 250 \
+    --px 1.0 --pyx 1.0 --l2 0.0 \
+    --n_steps 10 --in_steps 5 \
+    --query_size 250 --sample_method random \
     --labels_per_class -1 \
-    --dataset $dataset \
+    --dataset $dataset --sigma 0.0 \
     --experiment_type random-independent_softmax_sgd \
-    --enable_tracking \
-    # --calibrated \
+    # --enable_tracking \
