@@ -14,18 +14,23 @@
 # limitations under the License.
 
 import argparse
-import math
 import os
+import shutil
 
+import pandas as pd
 import numpy as np
 import torch as t
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision as tv
+import yaml
 from accelerate.utils import set_seed
 from netcal.metrics import ECE
+from netcal.presentation import ReliabilityDiagram
 from tensorboardX import SummaryWriter
 from torch.distributions.multivariate_normal import MultivariateNormal
 from tqdm import tqdm
+
 
 from DataModule import DataModule
 from models.JEM import get_model, get_optim
@@ -161,7 +166,7 @@ def sample_q(f, datamodule, replay_buffer, args, device):
     return final_samples
 
 
-def compute_ece(confs, gts, n_classes):
+def compute_ece(confs, gts, n_classes, save_rel_diagram=False, save_path=None):
     """
     Computes the Expected Calibration Error (ECE) of a model.
 
@@ -178,15 +183,22 @@ def compute_ece(confs, gts, n_classes):
         - The Expected Calibration Error (ECE) of the model.
     """
 
-    confs, gts = t.cat(confs), t.cat(gts)
-    all_confs = confs.cpu().numpy().reshape((-1, n_classes))
-    all_gts = gts.cpu().numpy()
-    ece = ECE().measure(all_confs, all_gts)
+    BINS = 10
+
+    confs, gts = np.concatenate(confs), np.concatenate(gts)
+    all_confs = confs.reshape((-1, n_classes))
+
+    ece = ECE(BINS).measure(all_confs, gts)
+
+    if save_rel_diagram:
+        assert save_path is not None, "save_path must be provided if save_rel_diagram is True."
+        ReliabilityDiagram(BINS).plot(all_confs, gts, filename=save_path, tikz=True)
+        ReliabilityDiagram(BINS).plot(all_confs, gts, filename=save_path.replace(".tikz", ".png"))
 
     return ece
 
 
-def fit(f: nn.Module, optim: t.optim, datamodule: DataModule, args: argparse.Namespace):
+def fit(f: nn.Module, datamodule: DataModule, args: argparse.Namespace, writer: SummaryWriter, log_dir: str, al_iter: int):
 
     # Informative initialization
     if not os.path.isfile(f"weights/{datamodule.dataset}_cov.pt"):
@@ -194,18 +206,15 @@ def fit(f: nn.Module, optim: t.optim, datamodule: DataModule, args: argparse.Nam
 
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
     f.to(device)
+    optim = get_optim(f, args)
 
-    ver_num = len([name for name in os.listdir(f"./logs/{datamodule.dataset}")])
-    log_dir = f"./logs/{datamodule.dataset}/v_{ver_num}"
     samples_dir = f"{log_dir}/samples"
     ckpt_dir = f"{log_dir}/checkpoints"
     test_dir = f"{log_dir}/test"
 
-    writer = SummaryWriter(log_dir)
-
-    for dir in [log_dir, ckpt_dir, test_dir, samples_dir]:
+    for dir in [ckpt_dir, test_dir, samples_dir]:
         if not os.path.exists(dir):
-            os.makedirs(dir)
+            os.makedirs(dir, exist_ok=True)
 
     progress_bar = tqdm(range(args.n_epochs), desc="Training Progress", total=args.n_epochs, position=0, leave=True)
 
@@ -215,6 +224,7 @@ def fit(f: nn.Module, optim: t.optim, datamodule: DataModule, args: argparse.Nam
 
     replay_buffer = init_from_centers(datamodule, args, device)
 
+    curr_iter = 0
     for epoch in progress_bar:
         # Decay LR
         if epoch in args.decay_epochs:
@@ -235,12 +245,12 @@ def fit(f: nn.Module, optim: t.optim, datamodule: DataModule, args: argparse.Nam
         # Training
         f.train()
         train_loss, train_acc = [], []
-        for iter, (train_batch, labeled_batch) in enumerate(batch_prog_bar):
+        for train_batch, labeled_batch in batch_prog_bar:
 
             # Warmup LR
-            if iter <= args.warmup_iters:
-                lr = args.lr * iter / float(args.warmup_iters)
+            if curr_iter <= args.warmup_iters:
                 for param_group in optim.param_groups:
+                    lr = args.lr * curr_iter / float(args.warmup_iters)
                     param_group["lr"] = lr
 
             L, acc = 0.0, 0.0
@@ -268,7 +278,7 @@ def fit(f: nn.Module, optim: t.optim, datamodule: DataModule, args: argparse.Nam
                 x_lab, y_lab = x_lab.to(device), y_lab.to(device).squeeze().long()
 
                 logits = f.classify(x_lab)
-                ce_loss = args.pyx * nn.functional.cross_entropy(logits, y_lab)
+                ce_loss = args.pyx * F.cross_entropy(logits, y_lab)
                 acc = (logits.max(1)[1] == y_lab).float().mean()
 
                 L += args.pyx * ce_loss
@@ -276,10 +286,10 @@ def fit(f: nn.Module, optim: t.optim, datamodule: DataModule, args: argparse.Nam
             train_loss.append(L)
             train_acc.append(acc)
 
-            # Backpropagation
             optim.zero_grad()
             L.backward()
             optim.step()
+            curr_iter += 1
 
         # Average loss and accuracy over the epoch
         train_loss = t.mean(t.stack(train_loss))
@@ -293,43 +303,44 @@ def fit(f: nn.Module, optim: t.optim, datamodule: DataModule, args: argparse.Nam
 
             with t.no_grad():
                 logits = f.classify(x_lab)
+                ce_loss = F.cross_entropy(logits, y_lab, reduction="none").detach().cpu().numpy()
+                confs = F.softmax(logits, dim=1).float().cpu().numpy()
 
-            ce_loss = nn.functional.cross_entropy(logits, y_lab)
-            acc = (logits.max(1)[1] == y_lab).float().mean()
-            confs = nn.functional.softmax(logits, dim=1)
+            acc = (logits.max(1)[1] == y_lab).float().cpu().numpy()
+            gts = y_lab.detach().cpu().numpy()
 
-            val_loss.append(ce_loss)
-            val_acc.append(acc)
-            all_confs.append(confs)
-            all_gts.append(y_lab)
+            val_loss.extend(ce_loss)
+            val_acc.extend(acc)
+            all_confs.extend(confs)
+            all_gts.append(gts)
 
         # Average loss and accuracy over the validation set
-        val_loss = t.mean(t.stack(val_loss))
-        val_acc = t.mean(t.stack(val_acc))
+        val_loss = np.mean(val_loss)
+        val_acc = np.mean(val_acc)
         val_ece = compute_ece(all_confs, all_gts, datamodule.n_classes)
 
         # Save best model if validation loss is lower
         if val_loss < best_val_loss:
-            t.save(f.state_dict(), f"{ckpt_dir}/best.ckpt")
+            t.save(f.state_dict(), f"{ckpt_dir}/num-labels-{len(datamodule.labeled_indices)}_best.ckpt")
             best_val_loss = val_loss
 
-        if epoch % args.sample_every_n_epochs == 0:
+        if epoch % args.sample_every_n_epochs == 0 and args.px > 0:
             samples = sample_q(f, datamodule, replay_buffer, args, device)
-            filename = f"{samples_dir}/epoch_{epoch}.png"
-            tv.utils.save_image(t.clamp(samples, -1, 1), filename, normalize=True, nrow=int(math.sqrt(args.batch_size)))
+            filename = f"{samples_dir}/epoch_{al_iter * args.n_epochs + epoch}.jpg"
+            tv.utils.save_image(samples, filename, normalize=True, value_range=(-1, 1))
 
         metrics = {
-            "others/v": int(ver_num),
             "train/loss": train_loss.item(),
             "train/acc": train_acc.item(),
             "val/loss": val_loss.item(),
             "val/acc": val_acc.item(),
             "val/ece": val_ece,
+            "lr": optim.param_groups[0]["lr"],
         }
 
         # Log to tensorboard
         for key, value in metrics.items():
-            writer.add_scalar(key, value, epoch)
+            writer.add_scalar(key, value, al_iter * args.n_epochs + epoch)
 
         writer.flush()
 
@@ -339,27 +350,31 @@ def fit(f: nn.Module, optim: t.optim, datamodule: DataModule, args: argparse.Nam
 
         progress_bar.set_postfix(metrics)
 
+    # Log last epoch
+    metrics = {
+        "al-iter-train/loss": train_loss.item(),
+        "al-iter-train/acc": train_acc.item(),
+        "al-iter-val/loss": val_loss.item(),
+        "al-iter-val/acc": val_acc.item(),
+        "al-iter-val/ece": val_ece,
+    }
+
+    for key, value in metrics.items():
+        writer.add_scalar(key, value, len(datamodule.labeled_indices))
+
     # Save last model checkpoint
-    t.save(f.state_dict(), f"{ckpt_dir}/last.ckpt")
-    writer.close()
+    t.save(f.state_dict(), f"{ckpt_dir}/num-labels-{len(datamodule.labeled_indices)}_last.ckpt")
 
     return f
 
 
-def test(self, f, datamodule: DataModule, ckpt_path: str | None, type: str | None = "last"):
+def test(f, datamodule: DataModule, path: str, num_labeled: int):
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
     f.to(device)
 
-    # get log directory from checkpoint path
-    if ckpt_path is not None:
-        log_dir = "/".join(ckpt_path.split("/")[:-1])
-
-    if ckpt_path is not None:
-        f.load_state_dict(t.load(f"{ckpt_path}/{type}.ckpt"))
-
     test_dataloader = datamodule.test_dataloader()
 
-    progress_bar = tqdm(test_dataloader, desc="Test Progress", total=len(self.test_dataloader), position=0, leave=True)
+    progress_bar = tqdm(test_dataloader, desc="Test Progress", total=len(test_dataloader), position=0, leave=True)
 
     f.eval()
     test_loss, test_acc, all_confs, all_gts = [], [], [], []
@@ -368,43 +383,99 @@ def test(self, f, datamodule: DataModule, ckpt_path: str | None, type: str | Non
 
         with t.no_grad():
             logits = f.classify(x_lab)
+            ce_loss = nn.functional.cross_entropy(logits, y_lab, reduction="none").detach().cpu().numpy()
+            confs = nn.functional.softmax(logits, dim=1).float().cpu().numpy()
 
-        ce_loss = nn.functional.cross_entropy(logits, y_lab)
-        acc = (logits.max(1)[1] == y_lab).float().mean()
-        confs = nn.functional.softmax(logits, dim=1)
+        acc = (logits.max(1)[1] == y_lab).float().cpu().numpy()
+        gts = y_lab.detach().cpu().numpy()
 
-        test_loss.append(ce_loss)
-        test_acc.append(acc)
-        all_confs.append(confs)
-        all_gts.append(y_lab)
+        test_loss.extend(ce_loss)
+        test_acc.extend(acc)
+        all_confs.extend(confs)
+        all_gts.append(gts)
 
-    test_loss = t.mean(t.stack(test_loss))
-    test_acc = t.mean(t.stack(test_acc))
-    test_ece = compute_ece(all_confs, all_gts)
+    # Average loss and accuracy over the test set
+    test_loss = np.mean(test_loss)
+    test_acc = np.mean(test_acc)
+    test_ece = compute_ece(
+        all_confs,
+        all_gts,
+        datamodule.n_classes,
+        save_rel_diagram=True,
+        save_path=f"{path}/num-labels-{num_labeled}-reliability.tikz",
+    )
 
-    metrics = {
-        "test_loss": test_loss.item(),
-        "test_acc": test_acc.item(),
-        "test_ece": test_ece,
-    }
-    print(metrics)
+    # Save as a CSV file
+    test_df = pd.DataFrame(
+        {
+            "num_labeled": [num_labeled],
+            "test_loss": [test_loss.item()],
+            "test_acc": [test_acc.item()],
+            "test_ece": [test_ece],
+        }
+    )
+
+    if os.path.exists(f"{path}/test_metrics.csv"):
+        test_df.to_csv(f"{path}/test_metrics.csv", mode="a", header=False, index=False)
+    else:
+        test_df.to_csv(f"{path}/test_metrics.csv", mode="w", header=True, index=False)
 
 
 LIMIT = 4000
 
 
-def main(args):
+def train_model(args):
     datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
-    datamodule.setup(sample_method=args.sample_method, init_size=args.query_size)
 
-    for i in range():
-        print(f"|---Active Learning Iteration {i+1}---|")
-        model = get_model(datamodule, args)
-        optim = get_optim(model, args)
+    iterations = LIMIT // args.query_size
 
-        model = fit(model, optim, datamodule, args)
+    if not os.path.exists("./logs/{datamodule.dataset}"):
+        os.makedirs(f"./logs/{datamodule.dataset}", exist_ok=True)
 
-        datamodule.query(model, datamodule.unlabeled_dataloader(), args.query_size)
+    ver_num = len([name for name in os.listdir(f"./logs/{datamodule.dataset}")])
+    log_dir = f"./logs/{datamodule.dataset}/v_{ver_num}"
+
+    writer = SummaryWriter(log_dir)
+
+    with open(f"{log_dir}/args.yaml", "w") as f:
+        yaml.dump(vars(args), f)
+
+    model = get_model(datamodule, args)
+    datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=log_dir)
+
+    for i in range(iterations):
+        print(f"\n|---Active Learning Iteration {i+1}/{iterations}---|")
+
+        model = fit(model, datamodule, args, writer, log_dir, i)
+
+        if len(datamodule.labeled_indices) != LIMIT:
+            indices_to_fix = datamodule.query(model, args.query_size, log_dir)
+            datamodule.setup(indices_to_fix=indices_to_fix, start_iter=False, log_dir=log_dir)
+
+    writer.close()
+
+
+def test_model(args):
+    datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
+
+    v_num = args.ckpt_dir.split("/")[-2]
+
+    PATH = f"{args.test_dir}/{args.dataset}/{v_num}"
+    if os.path.exists(PATH):
+        shutil.rmtree(PATH, ignore_errors=True)
+        os.makedirs(PATH, exist_ok=True)
+    else:
+        os.makedirs(PATH, exist_ok=True)
+
+    datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=PATH)
+
+    ckpts = [name for name in os.listdir(args.ckpt_dir) if args.ckpt_type in name]
+    ckpts = [{"num_labeled": int(ckpt.split("_")[1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
+
+    for ckpt in ckpts:
+        print(f"\n|---Testing Model with {ckpt['num_labeled']} Labeled Samples---|")
+        model = get_model(datamodule, args, ckpt["path"])
+        test(model, datamodule, PATH, ckpt["num_labeled"])
 
 
 if __name__ == "__main__":
@@ -412,7 +483,6 @@ if __name__ == "__main__":
     t.backends.cudnn.deterministic = True
 
     args = parse_args()
-
     set_seed(args.seed)
 
-    main(args)
+    test_model(args) if args.test else train_model(args)

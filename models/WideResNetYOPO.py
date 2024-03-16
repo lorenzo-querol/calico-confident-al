@@ -38,7 +38,7 @@ def conv_init(m):
 class wide_basic(nn.Module):
     def __init__(self, in_planes, planes, dropout_rate, stride=1, norm=None, leak=0.2):
         super(wide_basic, self).__init__()
-        self.lrelu = nn.SiLU()
+        self.silu = nn.SiLU()
         self.bn1 = get_norm(in_planes, norm)
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
         self.dropout = Identity() if dropout_rate == 0.0 else nn.Dropout(p=dropout_rate)
@@ -52,8 +52,8 @@ class wide_basic(nn.Module):
             )
 
     def forward(self, x):
-        out = self.dropout(self.conv1(self.lrelu(self.bn1(x))))
-        out = self.conv2(self.lrelu(self.bn2(out)))
+        out = self.dropout(self.conv1(self.silu(self.bn1(x))))
+        out = self.conv2(self.silu(self.bn2(out)))
         out += self.shortcut(x)
 
         return out
@@ -74,13 +74,13 @@ class WideResNetYOPO(nn.Module):
         self.in_planes = 16
         self.sum_pool = sum_pool
         self.norm = norm
-        self.lrelu = nn.SiLU()
+        self.silu = nn.SiLU()
 
-        assert (depth - 4) % 6 == 0, "Wide-resnet depth should be 6n+4"
+        assert (depth - 4) % 6 == 0, "WRN depth should be 6n+4"
         n = (depth - 4) // 6
         k = widen_factor
 
-        print("Using Wide-Resnet %dx%d YOPO" % (depth, k))
+        print(f"Using WRN YOPO {depth}-{k} with {norm.capitalize()} Normalization.")
         nStages = [16, 16 * k, 32 * k, 64 * k]
 
         self.layer_one_out = None
@@ -113,7 +113,7 @@ class WideResNetYOPO(nn.Module):
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
-        out = self.lrelu(self.bn1(out))
+        out = self.silu(self.bn1(out))
 
         if self.sum_pool:
             out = out.view(out.size(0), out.size(1), -1).sum(2)
