@@ -443,14 +443,17 @@ def train_model(args):
     model = get_model(datamodule, args)
     datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=log_dir)
 
-    for i in range(iterations):
-        print(f"\n|---Active Learning Iteration {i+1}/{iterations}---|")
+    if LIMIT == 0:
+        model = fit(model, datamodule, args, writer, log_dir, 0)
+    else:
+        for i in range(iterations):
+            print(f"\n|---Active Learning Iteration {i+1}/{iterations}---|")
 
-        model = fit(model, datamodule, args, writer, log_dir, i)
+            model = fit(model, datamodule, args, writer, log_dir, i)
 
-        if len(datamodule.labeled_indices) != LIMIT:
-            indices_to_fix = datamodule.query(model, args.query_size, log_dir)
-            datamodule.setup(indices_to_fix=indices_to_fix, start_iter=False, log_dir=log_dir)
+            if len(datamodule.labeled_indices) != LIMIT:
+                indices_to_fix = datamodule.query(model, args.query_size, log_dir)
+                datamodule.setup(indices_to_fix=indices_to_fix, start_iter=False, log_dir=log_dir)
 
     writer.close()
 
