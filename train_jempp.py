@@ -17,8 +17,8 @@ import argparse
 import os
 import shutil
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
@@ -30,7 +30,6 @@ from netcal.presentation import ReliabilityDiagram
 from tensorboardX import SummaryWriter
 from torch.distributions.multivariate_normal import MultivariateNormal
 from tqdm import tqdm
-
 
 from DataModule import DataModule
 from models.JEM import get_model, get_optim
@@ -434,8 +433,7 @@ def train_model(args):
     if not os.path.exists("./logs/{datamodule.dataset}"):
         os.makedirs(f"./logs/{datamodule.dataset}", exist_ok=True)
 
-    ver_num = len([name for name in os.listdir(f"./logs/{datamodule.dataset}")])
-    log_dir = f"./logs/{datamodule.dataset}/v_{ver_num}"
+    log_dir = f"./logs/{datamodule.dataset}/{args.exp_name}"
 
     writer = SummaryWriter(log_dir)
 
@@ -460,7 +458,7 @@ def train_model(args):
 def test_model(args):
     datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
-    PATH = f"{args.test_dir}/{args.dataset}/px-{args.px}-{args.sample_method}"
+    PATH = f"{args.test_dir}/{datamodule.dataset}/{args.exp_name}"
 
     if os.path.exists(PATH):
         shutil.rmtree(PATH, ignore_errors=True)
@@ -476,6 +474,9 @@ def test_model(args):
     except ValueError:
         ckpts = [{"num_labeled": int(ckpt.split("_")[0].split("-")[-1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
 
+    # sort by number of labeled samples
+    ckpts = sorted(ckpts, key=lambda x: x["num_labeled"])
+
     for ckpt in ckpts:
         print(f"\n|---Testing Model with {ckpt['num_labeled']} Labeled Samples---|")
         model = get_model(datamodule, args, ckpt["path"])
@@ -488,5 +489,7 @@ if __name__ == "__main__":
 
     args = parse_args()
     set_seed(args.seed)
+
+    assert args.exp_name is not None, "Experiment name must be provided."
 
     test_model(args) if args.test else train_model(args)

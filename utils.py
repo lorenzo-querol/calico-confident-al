@@ -60,7 +60,7 @@ def parse_args():
     parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument("--test_dir", type=str, default="./test_results")
     parser.add_argument("--ckpt_dir", type=str, default=None)
-    parser.add_argument("--experiment_name", type=str, default=None)
+    parser.add_argument("--exp_name", type=str, default=None)
     parser.add_argument("--ckpt_every_n_epochs", type=int, default=None)
     parser.add_argument("--sample_every_n_epochs", type=int, default=10)
 
