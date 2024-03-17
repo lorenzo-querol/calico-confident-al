@@ -469,12 +469,7 @@ def test_model(args):
     datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=PATH)
 
     ckpts = [name for name in os.listdir(args.ckpt_dir) if args.ckpt_type in name]
-    try:
-        ckpts = [{"num_labeled": int(ckpt.split("_")[1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
-    except ValueError:
-        ckpts = [{"num_labeled": int(ckpt.split("_")[0].split("-")[-1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
-
-    # sort by number of labeled samples
+    ckpts = [{"num_labeled": int(ckpt.split("_")[0].split("-")[-1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
     ckpts = sorted(ckpts, key=lambda x: x["num_labeled"])
 
     for ckpt in ckpts:

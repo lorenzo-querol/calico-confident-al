@@ -1,27 +1,18 @@
 import os
-import shutil
 
+# Specify the directory you want to start from
+rootDir = "logs/pneumoniamnist/active-softmax/checkpoints"
 
-def copy_files(src_dir, dst_dir):
-    for dirpath, dirnames, filenames in os.walk(src_dir):
-        dst_subdir = dirpath.replace(src_dir, dst_dir)
-        if not os.path.exists(dst_subdir):
-            os.makedirs(dst_subdir)
+for dirName, subdirList, fileList in os.walk(rootDir):
+    for fname in fileList:
+        label, num, label2 = fname.split("_")
+        newfname = label + "-" + num + "_" + label2
+        src = os.path.join(dirName, fname)
+        dst = os.path.join(dirName, newfname)
 
-        for filename in filenames:
-            src_file = os.path.join(dirpath, filename)
-            dst_file = os.path.join(dst_subdir, filename)
+        os.rename(src, dst)
 
-            if os.path.exists(dst_file):
-                base, extension = os.path.splitext(dst_file)
-                i = 1
-                while os.path.exists(dst_file):
-                    dst_file = f"{base}_{i}{extension}"
-                    i += 1
-            shutil.copy2(src_file, dst_file)
-
-
-# Usage
-src_dir = "/path/to/source/directory"
-dst_dir = "/path/to/destination/directory"
-copy_files(src_dir, dst_dir)
+        # if fname.endswith('.ckpt') and '_250_best' in fname:
+        #     src = os.path.join(dirName, fname)
+        #     dst = os.path.join(dirName, fname.replace('_250_best', '-250_best'))
+        #     os.rename(src, dst)

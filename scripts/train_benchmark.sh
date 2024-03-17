@@ -2,7 +2,8 @@
 
 DATASET=$1
 PX=$2
-export CUDA_VISIBLE_DEVICES=$3
+EXP_NAME=$3
+export CUDA_VISIBLE_DEVICES=$4
 
 python train_jempp.py \
     --model yopo \
@@ -11,4 +12,4 @@ python train_jempp.py \
     --px $PX --pyx 1.0 --l2 0.0 \
     --n_steps 10 --in_steps 5 \
     --query_size 2500 --sample_method random \
-    --dataset $DATASET
+    --dataset $DATASET --exp_name $4 \
