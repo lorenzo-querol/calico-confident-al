@@ -9,7 +9,10 @@ from tqdm import tqdm
 from sklearn.metrics import confusion_matrix
 import pandas as pd
 
-SUPPORTED_DATASETS = ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]
+from CustomDataset import CustomDataset
+
+BENCHMARK_DATASETS = ["mnist", "cifar10", "cifar100", "svhn"]
+MEDMNIST_DATASETS = ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]
 
 
 class DataSubset(Dataset):
@@ -69,7 +72,13 @@ class DataModule:
         self._download_dataset("test")
 
     def _download_dataset(self, split: str):
-        if self.dataset in SUPPORTED_DATASETS:
+        if self.dataset in BENCHMARK_DATASETS:
+            other_dataset = CustomDataset(self.dataset, root=self.root_dir, split=split, transform=None, download=True)
+            self.img_shape = (1, 28, 28) if self.dataset == "mnist" else (3, 32, 32)
+            self.n_classes = 100 if self.dataset == "cifar100" else 10
+            self.classes = other_dataset.classes
+
+        elif self.dataset in MEDMNIST_DATASETS:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]
@@ -78,18 +87,26 @@ class DataModule:
             self.img_shape = (info["n_channels"], 28, 28)
             self.classes = [classnames[str(i)] for i in range(len(classnames))]
             self.n_classes = len(classnames)
+
         else:
             raise ValueError(f"Dataset {self.dataset} not supported.")
 
     def _dataset_function(self, split: str, train: bool, augment: bool):
         transform = self._get_transforms(train=train, augment=augment)
 
-        if self.dataset in SUPPORTED_DATASETS:
+        if self.dataset in BENCHMARK_DATASETS:
+            other_dataset = CustomDataset(self.dataset, root=self.root_dir, split=split, transform=transform, download=False)
+            dataset = other_dataset.get_dataset()
+
+            return dataset
+
+        elif self.dataset in MEDMNIST_DATASETS:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             dataset = DataClass(root=self.root_dir, split=split, transform=transform, download=False)
 
             return dataset
+
         else:
             raise ValueError(f"Dataset {self.dataset} not supported.")
 

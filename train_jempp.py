@@ -421,12 +421,14 @@ def test(f, datamodule: DataModule, path: str, num_labeled: int):
         test_df.to_csv(f"{path}/test_metrics.csv", mode="w", header=True, index=False)
 
 
-LIMIT = 4000
+BENCHMARK_DATASETS = ["mnist", "cifar10", "cifar100", "svhn"]
+MEDMNIST_DATASETS = ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]
 
 
 def train_model(args):
     datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
+    LIMIT = 40000 if args.dataset in BENCHMARK_DATASETS else 4000
     iterations = LIMIT // args.query_size
 
     if not os.path.exists("./logs/{datamodule.dataset}"):
@@ -458,9 +460,8 @@ def train_model(args):
 def test_model(args):
     datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
-    v_num = args.ckpt_dir.split("/")[-2]
+    PATH = f"{args.test_dir}/{args.dataset}/px-{args.px}-{args.sample_method}"
 
-    PATH = f"{args.test_dir}/{args.dataset}/{v_num}"
     if os.path.exists(PATH):
         shutil.rmtree(PATH, ignore_errors=True)
         os.makedirs(PATH, exist_ok=True)
@@ -470,7 +471,10 @@ def test_model(args):
     datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=PATH)
 
     ckpts = [name for name in os.listdir(args.ckpt_dir) if args.ckpt_type in name]
-    ckpts = [{"num_labeled": int(ckpt.split("_")[1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
+    try:
+        ckpts = [{"num_labeled": int(ckpt.split("_")[1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
+    except ValueError:
+        ckpts = [{"num_labeled": int(ckpt.split("_")[0].split("-")[-1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
 
     for ckpt in ckpts:
         print(f"\n|---Testing Model with {ckpt['num_labeled']} Labeled Samples---|")

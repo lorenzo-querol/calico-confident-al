@@ -1,7 +1,8 @@
 #!/bin/bash
 
 DATASET=$1
-PX=$2
+V_NUM=$2
+PX=$3
 export CUDA_VISIBLE_DEVICES="0"
 
 python train_jempp.py \
@@ -12,4 +13,4 @@ python train_jempp.py \
     --n_steps 10 --in_steps 5 \
     --query_size 250 --sample_method random \
     --dataset $DATASET \
-    --test --ckpt_dir logs/bloodmnist/v_0/checkpoints
+    --test --ckpt_dir logs/${DATASET}/v_${V_NUM}/checkpoints
