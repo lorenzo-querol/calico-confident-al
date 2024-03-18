@@ -3,7 +3,6 @@ channels:
   - pytorch
   - nvidia
   - conda-forge
-  - huggingface
 dependencies:
   - python=3.11
   - pytorch
@@ -11,11 +10,7 @@ dependencies:
   - torchaudio
   - pytorch-cuda=11.8
   - tensorboardx
-  - accelerate
-  - huggingface_hub
   - tensorboard
-  - wandb
-  - safetensors
   - pip
   - pip:
       - medmnist
