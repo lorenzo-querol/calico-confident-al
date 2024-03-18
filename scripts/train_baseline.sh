@@ -1,13 +1,14 @@
 #!/bin/bash
 
-# Define the datasets here! Easier to run these since its less intensive than JEM++
+# Define the datasets here. Easier to run these since it's less computationally expensive than JEM++
 DATASETS=("cifar10")
 EXP_NAME="baseline-softmax"
 export CUDA_VISIBLE_DEVICES=$1
 
-# Don't forget to change the query size and lr for Benchmark or MedMNIST!
-# Benchmark (CIFAR10, etc.): query_size 2500, lr 0.1
-# MedMNIST: query_size 250, lr 0.01
+# Don't forget to change the query size and lr for Benchmark or MedMNIST.
+# Benchmark (CIFAR10, etc.): query_size 2500
+# MedMNIST: query_size 250 
+# NOTE: For Pneumonia, lr 0.0001, norm "none", optim adam
 
 for DATASET in "${DATASETS[@]}"
 do

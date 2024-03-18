@@ -430,10 +430,17 @@ def train_model(args):
     LIMIT = 40000 if args.dataset in BENCHMARK_DATASETS else 4000
     iterations = LIMIT // args.query_size
 
-    if not os.path.exists("./logs/{datamodule.dataset}"):
-        os.makedirs(f"./logs/{datamodule.dataset}", exist_ok=True)
-
     log_dir = f"./logs/{datamodule.dataset}/{args.exp_name}"
+
+    counter = 0
+
+    if os.path.exists(log_dir):
+        counter += 1
+        while os.path.exists(f"{log_dir}_{counter}"):
+            counter += 1
+        log_dir = f"{log_dir}-{counter}"
+
+    os.makedirs(log_dir, exist_ok=True)
 
     writer = SummaryWriter(log_dir)
 
@@ -459,7 +466,6 @@ def train_model(args):
 
 
 def test_model(args):
-
     datasets = os.walk(args.log_dir).__next__()[1]
 
     for dataset in datasets:
