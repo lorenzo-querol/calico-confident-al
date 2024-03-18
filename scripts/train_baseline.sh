@@ -1,24 +1,23 @@
 #!/bin/bash
 
-# Define the datasets
-DATASETS=("bloodmnist" "dermamnist" "organcmnist" "organsmnist" "pneumoniamnist")
-
+# Define the datasets here! Easier to run these since its less intensive than JEM++
+DATASETS=("cifar10")
 EXP_NAME="baseline-softmax"
 export CUDA_VISIBLE_DEVICES=$1
 
-# Loop through the datasets
+# Don't forget to change the query size and lr for Benchmark or MedMNIST!
+# Benchmark (CIFAR10, etc.): query_size 2500, lr 0.1
+# MedMNIST: query_size 250, lr 0.01
+
 for DATASET in "${DATASETS[@]}"
 do
-    # Don't forget to change the query size for benchmark or medmnist
-    # For benchmark, use 40000
-    # For medmnist, use 4000
-
     python train_jempp.py \
-        --model yopo \
-        --lr 0.01 --decay_epochs 60 120 160 --optim sgd --norm batch \
+        --query_size 40000 --lr 0.1 \
+        --model yopo --norm batch \
+        --decay_epochs 60 120 160 --optim sgd \
         --n_epochs 200 --batch_size 128 \
         --px 0.0 --pyx 1.0 --l2 0.0 \
         --n_steps 10 --in_steps 5 \
-        --query_size 4000 --sample_method random \
+        --sample_method random \
         --dataset $DATASET --exp_name ${EXP_NAME}
 done

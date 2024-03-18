@@ -459,26 +459,34 @@ def train_model(args):
 
 
 def test_model(args):
-    datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
-    PATH = f"{args.test_dir}/{datamodule.dataset}/{args.exp_name}"
+    datasets = os.walk(args.log_dir).__next__()[1]
 
-    if os.path.exists(PATH):
-        shutil.rmtree(PATH, ignore_errors=True)
-        os.makedirs(PATH, exist_ok=True)
-    else:
-        os.makedirs(PATH, exist_ok=True)
+    for dataset in datasets:
+        args.dataset = dataset
+        exp_types = os.walk(f"{args.log_dir}/{args.dataset}").__next__()[1]
+        datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
-    datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=PATH)
+        for exp_type in exp_types:
+            TEST_PATH = f"{args.test_dir}/{datamodule.dataset}/{exp_type}"
 
-    ckpts = [name for name in os.listdir(args.ckpt_dir) if args.ckpt_type in name]
-    ckpts = [{"num_labeled": int(ckpt.split("_")[0].split("-")[-1]), "path": f"{args.ckpt_dir}/{ckpt}"} for ckpt in ckpts]
-    ckpts = sorted(ckpts, key=lambda x: x["num_labeled"])
+            if os.path.exists(TEST_PATH):
+                shutil.rmtree(TEST_PATH, ignore_errors=True)
+                os.makedirs(TEST_PATH, exist_ok=True)
+            else:
+                os.makedirs(TEST_PATH, exist_ok=True)
 
-    for ckpt in ckpts:
-        print(f"\n|---Testing Model with {ckpt['num_labeled']} Labeled Samples---|")
-        model = get_model(datamodule, args, ckpt["path"])
-        test(model, datamodule, PATH, ckpt["num_labeled"])
+            datamodule.test_setup(TEST_PATH)
+
+            CKPT_DIR = f"{args.log_dir}/{args.dataset}/{exp_type}/checkpoints"
+            ckpts = [name for name in os.listdir(CKPT_DIR) if args.ckpt_type in name]
+            ckpts = [{"num_labeled": int(ckpt.split("_")[0].split("-")[-1]), "path": f"{CKPT_DIR}/{ckpt}"} for ckpt in ckpts]
+            ckpts = sorted(ckpts, key=lambda x: x["num_labeled"])
+
+            for ckpt in ckpts:
+                print(f"\n|---Testing Model with {ckpt['num_labeled']} Labeled Samples---|")
+                model = get_model(datamodule, args, ckpt["path"])
+                test(model, datamodule, TEST_PATH, ckpt["num_labeled"])
 
 
 if __name__ == "__main__":
@@ -488,6 +496,7 @@ if __name__ == "__main__":
     args = parse_args()
     set_seed(args.seed)
 
-    assert args.exp_name is not None, "Experiment name must be provided."
+    if not args.test:
+        assert args.exp_name is not None, "Experiment name must be provided."
 
     test_model(args) if args.test else train_model(args)

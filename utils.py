@@ -31,13 +31,11 @@ def parse_args():
     parser.add_argument("--n_steps", type=int)
     parser.add_argument("--in_steps", type=int)
     parser.add_argument("--query_size", type=int)
-    parser.add_argument("--dataset", type=str)
     parser.add_argument("--sample_method", type=str)
     parser.add_argument("--test", action="store_true")
-    parser.add_argument("--test_path", type=str, default=None)
-    parser.add_argument("--ckpt_type", type=str, default="last")
 
     # Arguments with default values
+    parser.add_argument("--dataset", type=str, default=None)
     parser.add_argument("--width", type=int, default=10)
     parser.add_argument("--depth", type=int, default=28)
     parser.add_argument("--decay_rate", type=float, default=0.2)
@@ -60,8 +58,8 @@ def parse_args():
     parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument("--test_dir", type=str, default="./test_results")
     parser.add_argument("--ckpt_dir", type=str, default=None)
+    parser.add_argument("--ckpt_type", type=str, default="last")
     parser.add_argument("--exp_name", type=str, default=None)
-    parser.add_argument("--ckpt_every_n_epochs", type=int, default=None)
     parser.add_argument("--sample_every_n_epochs", type=int, default=10)
 
     args = parser.parse_args()

@@ -191,6 +191,30 @@ class DataModule:
         else:
             distribution_df.to_csv(f"{log_dir}/class_dist.csv", mode="w", header=True, index=False)
 
+    def test_setup(self, test_dir: str):
+        self.test = self._dataset_function("test", train=False, augment=False)
+        self.test_indices = list(range(len(self.test)))
+        self.test_labels = np.array([np.squeeze(self.test[ind][1]) for ind in self.test_indices])
+
+        # Calculate class distribution
+        labels, counts = np.unique(self.test_labels, return_counts=True)
+        distribution_dict = {}
+        distribution_dict["num_labeled"] = [len(self.test_indices)]
+
+        for label, count in zip(labels, counts):
+            distribution_dict[label] = [count]
+
+        print("Class Distribution:")
+        for key, value in distribution_dict.items():
+            if key == "num_labeled":
+                continue
+            print(f"Class {key}: {value[0]}")
+
+        distribution_df = pd.DataFrame(distribution_dict)
+        distribution_df.columns = ["num_labeled"] + self.classes
+
+        distribution_df.to_csv(f"{test_dir}/class_dist.csv", mode="w", header=True, index=False)
+
     def query(self, f: t.nn.Module, query_size: int, log_dir: str):
         progress_bar = tqdm(self.unlabeled_dataloader(), desc="Prediction Progress")
         device = t.device("cuda" if t.cuda.is_available() else "cpu")
