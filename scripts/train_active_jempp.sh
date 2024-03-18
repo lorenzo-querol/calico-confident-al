@@ -9,7 +9,7 @@ export CUDA_VISIBLE_DEVICES=$2
 # NOTE: For Pneumonia, lr 0.0001, norm "none", optim adam
 
 python train_jempp.py \
-    --query_size 250 --lr 0.1 \
+    --query_size 250 --lr 0.01 \
     --model yopo --norm batch \
     --decay_epochs 25 --optim sgd --warmup_iters -1 \
     --n_epochs 50 --batch_size 128 \
