@@ -9,11 +9,11 @@ export CUDA_VISIBLE_DEVICES=$2
 # NOTE: For Pneumonia, lr 0.0001, norm "none", optim adam
 
 python train_jempp.py \
-    --query_size 250 --lr 0.1 \
-    --model yopo --norm batch \
-    --decay_epochs 25 --optim sgd --warmup_iters -1 \
+    --query_size 250 --lr 0.0001 \
+    --model yopo --norm none \
+    --decay_epochs 25 --optim adam --warmup_iters -1 \
     --n_epochs 50 --batch_size 128 \
-    --px 1.0 --pyx 1.0 --l2 0.0 \
+    --px 0.0 --pyx 1.0 --l2 0.0 \
     --n_steps 10 --in_steps 5 \
     --sample_method random \
     --dataset $DATASET --exp_name 'active-softmax'
