@@ -10,4 +10,4 @@ python train_jempp.py \
     --px 1.0 --pyx 1.0 --l2 0.0 \
     --n_steps 10 --in_steps 5 \
     --sample_method random \
-    --test
+    --test --ckpt_type best

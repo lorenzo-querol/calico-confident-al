@@ -16,7 +16,7 @@
 import argparse
 import os
 import shutil
-
+from temperature_scaling import ModelWithTemperature
 import numpy as np
 import pandas as pd
 import torch as t
@@ -430,7 +430,7 @@ def train_model(args):
     LIMIT = 40000 if args.dataset in BENCHMARK_DATASETS else 4000
     iterations = LIMIT // args.query_size
 
-    log_dir = f"./logs/{datamodule.dataset}/{args.exp_name}"
+    log_dir = f"./{args.log_dir}/{datamodule.dataset}/{args.exp_name}"
 
     counter = 0
 
@@ -505,7 +505,15 @@ def test_model(args):
         datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
         for exp_type in exp_types:
-            TEST_PATH = f"{args.test_dir}/{datamodule.dataset}/{exp_type}"
+            if args.temp_scale and exp_type in ["baseline-softmax", "active-jempp", "equal-jempp"]:
+                continue
+
+            type = exp_type
+
+            if args.temp_scale:
+                type = type + "-temp_scaled"
+
+            TEST_PATH = f"{args.test_dir}/{datamodule.dataset}/{type}"
 
             if os.path.exists(TEST_PATH):
                 shutil.rmtree(TEST_PATH, ignore_errors=True)
@@ -523,7 +531,12 @@ def test_model(args):
             for ckpt in ckpts:
                 print(f"\n|---Testing Model with {ckpt['num_labeled']} Labeled Samples---|")
                 model = get_model(datamodule, args, ckpt["path"])
-                test(model, datamodule, TEST_PATH, ckpt["num_labeled"])
+
+                if args.temp_scale:
+                    model = ModelWithTemperature(model)
+                    model.set_temperature(datamodule.val_dataloader())
+
+                test(model.model if args.temp_scale else model, datamodule, TEST_PATH, ckpt["num_labeled"])
 
 
 if __name__ == "__main__":

@@ -145,14 +145,8 @@ class DataModule:
                 # Set seed
                 np.random.seed(1)
 
-                if args.temp_scale:
-                    self.labeled_indices = np.random.choice(train_indices, init_size, replace=False)
-                    self.temp_scale_indices = np.random.choice(self.labeled_indices, int(len(self.labeled_indices) * 0.2), replace=False)
-                    self.labeled_indices = np.setdiff1d(self.labeled_indices, self.temp_scale_indices)
-                    self.unlabeled_indices = np.setdiff1d(train_indices, self.labeled_indices)
-                else:
-                    self.labeled_indices = np.random.choice(train_indices, init_size, replace=False)
-                    self.unlabeled_indices = np.setdiff1d(train_indices, self.labeled_indices)
+                self.labeled_indices = np.random.choice(train_indices, init_size, replace=False)
+                self.unlabeled_indices = np.setdiff1d(train_indices, self.labeled_indices)
 
             # Use all training data
             else:
@@ -165,19 +159,10 @@ class DataModule:
 
         print("Sampling method:", sample_method)
         print("Current labeled train indices:", len(self.labeled_indices))
-        print("Temp scale indices:", len(self.temp_scale_indices) if args.temp_scale else 0)
         print("Current unlabeled train indices:", len(self.unlabeled_indices))
 
         self.labeled = DataSubset(self._dataset_function("train", train=True, augment=True), indices=self.labeled_indices)
         self.labeled_labels = np.array([np.squeeze(self.labeled[ind][1]) for ind in range(len(self.labeled))])
-        self.temp_scale = (
-            DataSubset(
-                self._dataset_function("train", train=True, augment=True),
-                indices=self.temp_scale_indices,
-            )
-            if args.temp_scale
-            else None
-        )
         self.unlabeled = DataSubset(self._dataset_function("train", train=False, augment=False), indices=self.unlabeled_indices)
 
         self.val = self._dataset_function("val", train=False, augment=False)
@@ -206,6 +191,7 @@ class DataModule:
             distribution_df.to_csv(f"{log_dir}/class_dist.csv", mode="w", header=True, index=False)
 
     def test_setup(self, test_dir: str):
+        self.val = self._dataset_function("val", train=False, augment=False)
         self.test = self._dataset_function("test", train=False, augment=False)
         self.test_indices = list(range(len(self.test)))
         self.test_labels = np.array([np.squeeze(self.test[ind][1]) for ind in self.test_indices])
@@ -291,9 +277,6 @@ class DataModule:
 
     def labeled_dataloader(self):
         return self._cycle(self._create_dataloader(self.labeled, drop_last=True))
-
-    def temp_scale_dataloader(self):
-        return self._cycle(self._create_dataloader(self.temp_scale))
 
     def unlabeled_dataloader(self):
         return self._create_dataloader(self.unlabeled, shuffle=False)
