@@ -7,12 +7,14 @@ export CUDA_VISIBLE_DEVICES=$2
 # Benchmark (CIFAR10, etc.): query_size 2500
 # MedMNIST: query_size 250 
 
+# Mental note: organsmnist uses 0.001 LR
+
 python train_jempp.py \
-    --query_size 250 --lr 0.001 \
+    --query_size 250 --lr 0.01 \
     --model yopo --norm batch \
     --decay_epochs 25 --optim sgd --warmup_iters -1 \
     --n_epochs 50 --batch_size 128 \
     --px 0.0 --pyx 1.0 --l2 0.0 \
     --n_steps 10 --in_steps 5 \
     --sample_method random \
-    --dataset $DATASET --exp_name 'active-softmax-v2'
+    --dataset $DATASET --exp_name 'temp_scaled'

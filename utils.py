@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument("--query_size", type=int)
     parser.add_argument("--sample_method", type=str)
     parser.add_argument("--test", action="store_true")
+    parser.add_argument("--temp_scale", action="store_true")
 
     # Arguments with default values
     parser.add_argument("--dataset", type=str, default=None)
