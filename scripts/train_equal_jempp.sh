@@ -1,19 +1,32 @@
 #!/bin/bash
 
 DATASET=$1
-export CUDA_VISIBLE_DEVICES=$2
+LABELS_PER_CLASS=$2
+export CUDA_VISIBLE_DEVICES=$3
 
-# Don't forget to change the query size and lr for Benchmark or MedMNIST.
-# Benchmark (CIFAR10, etc.): query_size 2500
-# MedMNIST: query_size 250 
-# NOTE: For Pneumonia, lr 0.0001, norm "none", optim adam
+# NOTE The labels_per_class for each dataset are as follows:
+# bloodmnist: 4000, labels_per_class 50
+# organcmnist: 3850, labels_per_class 35
+# organsmnist: 3850, labels_per_class 35
+# pneumoniamnist: 2000, labels_per_class 100
 
+# python train_jempp.py \
+#     --query_size 250 --lr 0.01 \
+#     --model yopo --norm batch \
+#     --decay_epochs 25 --optim sgd --warmup_iters -1 \
+#     --n_epochs 50 --batch_size 128 \
+#     --px 1.0 --pyx 1.0 --l2 0.0 \
+#     --n_steps 10 --in_steps 5 \
+#     --sample_method equal --labels_per_class ${LABELS_PER_CLASS} \
+#     --dataset $DATASET --exp_name 'equal-jempp'
+
+# Run this for PneumoniaMNIST
 python train_jempp.py \
-    --query_size 250 --lr 0.1 \
-    --model yopo --norm batch \
-    --decay_epochs 25 --optim sgd --warmup_iters -1 \
+    --query_size 250 --lr 0.00001 \
+    --model yopo --norm none \
+    --decay_epochs 25 --optim adam --warmup_iters -1 \
     --n_epochs 50 --batch_size 128 \
     --px 1.0 --pyx 1.0 --l2 0.0 \
     --n_steps 10 --in_steps 5 \
-    --sample_method equal \
+    --sample_method equal --labels_per_class ${LABELS_PER_CLASS} \
     --dataset $DATASET --exp_name 'equal-jempp'

@@ -2,12 +2,12 @@ import os
 
 import medmnist
 import numpy as np
+import pandas as pd
 import torch as t
 import torchvision.transforms as tr
+from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from sklearn.metrics import confusion_matrix
-import pandas as pd
 
 from CustomDataset import CustomDataset
 
@@ -186,7 +186,7 @@ class DataModule:
         distribution_df = pd.DataFrame(distribution_dict)
         distribution_df.columns = ["num_labeled"] + self.classes
 
-        if os.path.exists(f"{log_dir}/acc_per_class.csv"):
+        if os.path.exists(f"{log_dir}/class_dist.csv"):
             distribution_df.to_csv(f"{log_dir}/class_dist.csv", mode="a", header=False, index=False)
         else:
             distribution_df.to_csv(f"{log_dir}/class_dist.csv", mode="w", header=True, index=False)

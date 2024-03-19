@@ -448,19 +448,50 @@ def train_model(args):
         yaml.dump(vars(args), f)
 
     model = get_model(datamodule, args)
-    datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=log_dir)
 
     if LIMIT == 0:
+        print("Dataset:", args.dataset)
+        print(f"\n|---Training baseline model with {args.query_size} labeled samples---|")
+        datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=log_dir)
         model = fit(model, datamodule, args, writer, log_dir, 0)
     else:
-        for i in range(iterations):
-            print(f"\n|---Active Learning Iteration {i+1}/{iterations}---|")
+        if args.sample_method == "equal":
+            limit_dicts = {
+                "bloodmnist": 4000,
+                "organcmnist": 3850,
+                "organsmnist": 3850,
+                "pneumoniamnist": 2000,
+            }
+            LIMIT = limit_dicts[args.dataset]
+            iterations = LIMIT // (args.labels_per_class * datamodule.n_classes)
+            assert LIMIT % (args.labels_per_class * datamodule.n_classes) == 0, "The number of labeled samples must be divisible by the query size."
+            labels_per_class = args.labels_per_class
 
-            model = fit(model, datamodule, args, writer, log_dir, i)
+            datamodule.setup(sample_method=args.sample_method, labels_per_class=labels_per_class, log_dir=log_dir)
 
-            if len(datamodule.labeled_indices) != LIMIT:
-                indices_to_fix = datamodule.query(model, args.query_size, log_dir)
-                datamodule.setup(indices_to_fix=indices_to_fix, start_iter=False, log_dir=log_dir)
+            for i in range(iterations):
+                print("Dataset:", args.dataset)
+                print(f"\n|---Iteration {i+1}/{iterations}: training with {labels_per_class} labeled samples per class---|")
+
+                model = fit(model, datamodule, args, writer, log_dir, i)
+
+                # Reset model
+                model = get_model(datamodule, args)
+
+                if len(datamodule.labeled_indices) != LIMIT:
+                    labels_per_class += args.labels_per_class
+                    datamodule.setup(sample_method=args.sample_method, labels_per_class=labels_per_class, log_dir=log_dir)
+        else:
+            datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=log_dir)
+            for i in range(iterations):
+                print("Dataset:", args.dataset)
+                print(f"\n|---Active Learning Iteration {i+1}/{iterations}---|")
+
+                model = fit(model, datamodule, args, writer, log_dir, i)
+
+                if len(datamodule.labeled_indices) != LIMIT:
+                    indices_to_fix = datamodule.query(model, args.query_size, log_dir)
+                    datamodule.setup(indices_to_fix=indices_to_fix, start_iter=False, log_dir=log_dir)
 
     writer.close()
 
@@ -469,6 +500,8 @@ def test_model(args):
     datasets = os.walk(args.log_dir).__next__()[1]
 
     for dataset in datasets:
+        if dataset != "pneumoniamnist":
+            continue
         args.dataset = dataset
         exp_types = os.walk(f"{args.log_dir}/{args.dataset}").__next__()[1]
         datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
