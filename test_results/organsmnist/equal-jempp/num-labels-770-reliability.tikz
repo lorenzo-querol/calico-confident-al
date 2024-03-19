@@ -1,0 +1,110 @@
+% This file was created by tikzplotlib v0.9.8.
+\begin{tikzpicture}
+
+\definecolor{color0}{rgb}{0.12156862745098,0.466666666666667,0.705882352941177}
+
+\begin{groupplot}[group style={group size=1 by 2}]
+\nextgroupplot[
+legend cell align={left},
+legend style={
+  fill opacity=0.8,
+  draw opacity=1,
+  text opacity=1,
+  at={(0.03,0.97)},
+  anchor=north west,
+  draw=white!80!black
+},
+tick align=outside,
+tick pos=left,
+title={Confidence Histogram},
+x grid style={white!69.0196078431373!black},
+xlabel={Confidence},
+xmin=0, xmax=1,
+xtick style={color=black},
+xtick={0,0.2,0.4,0.6,0.8,1},
+xticklabels={0.0,0.2,0.4,0.6,0.8,1.0},
+y grid style={white!69.0196078431373!black},
+ylabel={\% of Samples},
+ymin=0, ymax=1,
+ytick style={color=black},
+ytick={0,0.2,0.4,0.6,0.8,1},
+yticklabels={0.0,0.2,0.4,0.6,0.8,1.0}
+]
+\draw[draw=black,fill=color0] (axis cs:-6.93889390390723e-18,0) rectangle (axis cs:0.1,0);
+\draw[draw=black,fill=color0] (axis cs:0.1,0) rectangle (axis cs:0.2,0);
+\draw[draw=black,fill=color0] (axis cs:0.2,0) rectangle (axis cs:0.3,0.0018122097632801);
+\draw[draw=black,fill=color0] (axis cs:0.3,0) rectangle (axis cs:0.4,0.0105334692490656);
+\draw[draw=black,fill=color0] (axis cs:0.4,0) rectangle (axis cs:0.5,0.0261637784573564);
+\draw[draw=black,fill=color0] (axis cs:0.5,0) rectangle (axis cs:0.6,0.0476837693963076);
+\draw[draw=black,fill=color0] (axis cs:0.6,0) rectangle (axis cs:0.7,0.0450787178615925);
+\draw[draw=black,fill=color0] (axis cs:0.7,0) rectangle (axis cs:0.8,0.0513081889228678);
+\draw[draw=black,fill=color0] (axis cs:0.8,0) rectangle (axis cs:0.9,0.0749801789557141);
+\draw[draw=black,fill=color0] (axis cs:0.9,0) rectangle (axis cs:1,0.742439687393816);
+\addplot [semithick, black, dashed]
+table {%
+0.736436742552951 0
+0.736436742552951 1
+};
+\addlegendentry{Avg. Accuracy}
+\addplot [semithick, white!50.1960784313725!black, dashed]
+table {%
+0.908121347427368 0
+0.908121347427368 1
+};
+\addlegendentry{Avg. Confidence}
+
+\nextgroupplot[
+legend cell align={left},
+legend style={
+  fill opacity=0.8,
+  draw opacity=1,
+  text opacity=1,
+  at={(0.03,0.97)},
+  anchor=north west,
+  draw=white!80!black
+},
+tick align=outside,
+tick pos=left,
+title={Reliability Diagram},
+x grid style={white!69.0196078431373!black},
+xlabel={Confidence},
+xmin=0, xmax=1,
+xtick style={color=black},
+xtick={0,0.2,0.4,0.6,0.8,1},
+xticklabels={0.0,0.2,0.4,0.6,0.8,1.0},
+y grid style={white!69.0196078431373!black},
+ylabel={Accuracy},
+ymin=0, ymax=1,
+ytick style={color=black},
+ytick={0,0.2,0.4,0.6,0.8,1},
+yticklabels={0.0,0.2,0.4,0.6,0.8,1.0}
+]
+\draw[draw=black,fill=color0] (axis cs:-6.93889390390723e-18,0) rectangle (axis cs:0.1,0.05);
+\draw[draw=black,fill=color0] (axis cs:0.1,0) rectangle (axis cs:0.2,0.15);
+\draw[draw=black,fill=color0] (axis cs:0.2,0) rectangle (axis cs:0.3,0.1875);
+\draw[draw=black,fill=color0] (axis cs:0.3,0) rectangle (axis cs:0.4,0.290322580645161);
+\draw[draw=black,fill=color0] (axis cs:0.4,0) rectangle (axis cs:0.5,0.337662337662338);
+\draw[draw=black,fill=color0] (axis cs:0.5,0) rectangle (axis cs:0.6,0.38479809976247);
+\draw[draw=black,fill=color0] (axis cs:0.6,0) rectangle (axis cs:0.7,0.442211055276382);
+\draw[draw=black,fill=color0] (axis cs:0.7,0) rectangle (axis cs:0.8,0.448123620309051);
+\draw[draw=black,fill=color0] (axis cs:0.8,0) rectangle (axis cs:0.9,0.525679758308157);
+\draw[draw=black,fill=color0] (axis cs:0.9,0) rectangle (axis cs:1,0.839816933638444);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:-6.93889390390723e-18,0.05) rectangle (axis cs:0.1,0.05);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.1,0.15) rectangle (axis cs:0.2,0.15);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.2,0.1875) rectangle (axis cs:0.3,0.273412864655256);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.3,0.290322580645161) rectangle (axis cs:0.4,0.358715945994982);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.4,0.337662337662338) rectangle (axis cs:0.5,0.45944748115746);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.5,0.38479809976247) rectangle (axis cs:0.6,0.548262424253794);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.6,0.442211055276382) rectangle (axis cs:0.7,0.65267340771517);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.7,0.448123620309051) rectangle (axis cs:0.8,0.751352432021505);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.8,0.525679758308157) rectangle (axis cs:0.9,0.85381949452115);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.9,0.839816933638444) rectangle (axis cs:1,0.988216911218805);
+\addplot [semithick, red, dashed]
+table {%
+0 0
+1 1
+};
+\addlegendentry{Perfect Calibration}
+\end{groupplot}
+
+\end{tikzpicture}

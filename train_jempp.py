@@ -500,8 +500,6 @@ def test_model(args):
     datasets = os.walk(args.log_dir).__next__()[1]
 
     for dataset in datasets:
-        if dataset != "pneumoniamnist":
-            continue
         args.dataset = dataset
         exp_types = os.walk(f"{args.log_dir}/{args.dataset}").__next__()[1]
         datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
