@@ -2,7 +2,7 @@ import os
 import re
 
 # Define the root directory where your files are located
-root_directory = "runs/organsmnist/baseline-softmax/checkpoints"
+root_directory = "runs/pneumoniamnist/equal-jempp-adam/checkpoints"
 
 # Iterate over each directory and its contents using os.walk
 for dirpath, dirnames, filenames in os.walk(root_directory):

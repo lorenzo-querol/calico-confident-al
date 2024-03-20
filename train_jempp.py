@@ -16,7 +16,7 @@
 import argparse
 import os
 import shutil
-
+from temperature_scaling import ModelWithTemperature
 import numpy as np
 import pandas as pd
 import torch as t
@@ -32,8 +32,7 @@ from tqdm import tqdm
 
 from DataModule import DataModule
 from models.JEM import get_model, get_optim
-from temperature_scaling import ModelWithTemperature
-from utils import Hamiltonian, create_log_dir, parse_args, write_to_yaml
+from utils import Hamiltonian, parse_args, write_to_yaml, create_log_dir
 
 conditionals = []
 
@@ -488,9 +487,9 @@ def test_model(args):
     datasets = os.walk(args.log_dir).__next__()[1]
 
     for dataset in datasets:
-        args.dataset = dataset
-        if args.dataset == "pneumoniamnist":
+        if dataset == "organsmnist":
             continue
+        args.dataset = dataset
         exp_types = os.walk(f"{args.log_dir}/{args.dataset}").__next__()[1]
         datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
