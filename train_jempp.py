@@ -23,7 +23,6 @@ import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision as tv
-import yaml
 from accelerate.utils import set_seed
 from netcal.metrics import ECE
 from netcal.presentation import ReliabilityDiagram
@@ -33,7 +32,7 @@ from tqdm import tqdm
 
 from DataModule import DataModule
 from models.JEM import get_model, get_optim
-from utils import Hamiltonian, parse_args
+from utils import Hamiltonian, parse_args, write_to_yaml, create_log_dir
 
 conditionals = []
 
@@ -205,6 +204,7 @@ def fit(f: nn.Module, datamodule: DataModule, args: argparse.Namespace, writer: 
 
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
     f.to(device)
+
     optim = get_optim(f, args)
 
     samples_dir = f"{log_dir}/samples"
@@ -364,8 +364,6 @@ def fit(f: nn.Module, datamodule: DataModule, args: argparse.Namespace, writer: 
     # Save last model checkpoint
     t.save(f.state_dict(), f"{ckpt_dir}/num-labels-{len(datamodule.labeled_indices)}_last.ckpt")
 
-    return f
-
 
 def test(f, datamodule: DataModule, path: str, num_labeled: int):
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
@@ -420,78 +418,67 @@ def test(f, datamodule: DataModule, path: str, num_labeled: int):
         test_df.to_csv(f"{path}/test_metrics.csv", mode="w", header=True, index=False)
 
 
-BENCHMARK_DATASETS = ["mnist", "cifar10", "cifar100", "svhn"]
 MEDMNIST_DATASETS = ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]
+LIMIT_DICTS = {"bloodmnist": 4000, "organcmnist": 3850, "organsmnist": 3850, "pneumoniamnist": 2000}
 
 
 def train_model(args):
     datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
-    LIMIT = 40000 if args.dataset in BENCHMARK_DATASETS else 4000
+    LIMIT = 4000
     iterations = LIMIT // args.query_size
 
     log_dir = f"./{args.log_dir}/{datamodule.dataset}/{args.exp_name}"
-
-    counter = 0
-
-    if os.path.exists(log_dir):
-        counter += 1
-        while os.path.exists(f"{log_dir}_{counter}"):
-            counter += 1
-        log_dir = f"{log_dir}-{counter}"
-
-    os.makedirs(log_dir, exist_ok=True)
+    log_dir = create_log_dir(log_dir)
 
     writer = SummaryWriter(log_dir)
 
-    with open(f"{log_dir}/args.yaml", "w") as f:
-        yaml.dump(vars(args), f)
+    write_to_yaml(vars(args), f"{log_dir}/config.yaml")
 
-    model = get_model(datamodule, args)
-
-    if LIMIT == 0:
+    # Baseline experiments
+    if args.exp_name == "baseline-softmax":
         print("Dataset:", args.dataset)
         print(f"\n|---Training baseline model with {args.query_size} labeled samples---|")
         datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=log_dir)
-        model = fit(model, datamodule, args, writer, log_dir, 0)
+
+        model = get_model(datamodule, args)
+        fit(model, datamodule, args, writer, log_dir, 0)
+
+    # Equal class distribution experiments
+    elif args.exp_name == "equal-jempp" and args.sample_method == "equal":
+
+        LIMIT = LIMIT_DICTS[args.dataset]
+        iterations = LIMIT // (args.labels_per_class * datamodule.n_classes)
+        assert LIMIT % (args.labels_per_class * datamodule.n_classes) == 0, "The number of labeled samples must be divisible by the query size."
+        labels_per_class = args.labels_per_class
+
+        datamodule.setup(sample_method=args.sample_method, labels_per_class=labels_per_class, log_dir=log_dir)
+
+        for i in range(iterations):
+            print("Dataset:", args.dataset)
+            print(f"\n|---Iteration {i+1}/{iterations}: training with {labels_per_class} labeled samples per class---|")
+
+            model = get_model(datamodule, args)
+            fit(model, datamodule, args, writer, log_dir, i)
+
+            if len(datamodule.labeled_indices) != LIMIT:
+                labels_per_class += args.labels_per_class
+                datamodule.setup(sample_method=args.sample_method, labels_per_class=labels_per_class, log_dir=log_dir)
+
+    # Active learning experiments
     else:
-        if args.sample_method == "equal":
-            limit_dicts = {
-                "bloodmnist": 4000,
-                "organcmnist": 3850,
-                "organsmnist": 3850,
-                "pneumoniamnist": 2000,
-            }
-            LIMIT = limit_dicts[args.dataset]
-            iterations = LIMIT // (args.labels_per_class * datamodule.n_classes)
-            assert LIMIT % (args.labels_per_class * datamodule.n_classes) == 0, "The number of labeled samples must be divisible by the query size."
-            labels_per_class = args.labels_per_class
+        datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=log_dir)
 
-            datamodule.setup(sample_method=args.sample_method, labels_per_class=labels_per_class, log_dir=log_dir)
+        for i in range(iterations):
+            print("Dataset:", args.dataset)
+            print(f"\n|---Active Learning Iteration {i+1}/{iterations}---|")
 
-            for i in range(iterations):
-                print("Dataset:", args.dataset)
-                print(f"\n|---Iteration {i+1}/{iterations}: training with {labels_per_class} labeled samples per class---|")
+            model = get_model(datamodule, args)
+            fit(model, datamodule, args, writer, log_dir, i)
 
-                model = fit(model, datamodule, args, writer, log_dir, i)
-
-                # Reset model
-                model = get_model(datamodule, args)
-
-                if len(datamodule.labeled_indices) != LIMIT:
-                    labels_per_class += args.labels_per_class
-                    datamodule.setup(sample_method=args.sample_method, labels_per_class=labels_per_class, log_dir=log_dir)
-        else:
-            datamodule.setup(sample_method=args.sample_method, init_size=args.query_size, log_dir=log_dir)
-            for i in range(iterations):
-                print("Dataset:", args.dataset)
-                print(f"\n|---Active Learning Iteration {i+1}/{iterations}---|")
-
-                model = fit(model, datamodule, args, writer, log_dir, i)
-
-                if len(datamodule.labeled_indices) != LIMIT:
-                    indices_to_fix = datamodule.query(model, args.query_size, log_dir)
-                    datamodule.setup(indices_to_fix=indices_to_fix, start_iter=False, log_dir=log_dir)
+            if len(datamodule.labeled_indices) != LIMIT:
+                indices_to_fix = datamodule.query(model, args.query_size, log_dir)
+                datamodule.setup(indices_to_fix=indices_to_fix, start_iter=False, log_dir=log_dir)
 
     writer.close()
 

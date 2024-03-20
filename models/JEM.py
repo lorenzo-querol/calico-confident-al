@@ -37,13 +37,7 @@ def get_optim(model: nn.Module, args):
     optim_params = {"params": model.parameters(), "lr": args.lr, "weight_decay": args.weight_decay}
 
     if args.optim == "sgd":
-        # Reference: https://github.com/meliketoy/wide-resnet.pytorch
-        optim_params["nesterov"] = True
         optim_params["momentum"] = 0.9
-
-    if args.optim == "adam":
-        # Reference: https://arxiv.org/pdf/1903.08689.pdf
-        optim_params["betas"] = (0.0, 0.999)
 
     return base_optim(**optim_params)
 

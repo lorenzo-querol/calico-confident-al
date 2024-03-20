@@ -66,3 +66,24 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
+
+def write_to_yaml(data, path):
+    with open(path, "w") as f:
+        yaml.dump(data, f)
+
+
+def create_log_dir(log_dir):
+    counter = 0
+
+    if os.path.exists(log_dir):
+        counter += 1
+
+        while os.path.exists(f"{log_dir}-{counter}"):
+            counter += 1
+
+        log_dir = f"{log_dir}-{counter}"
+
+    os.makedirs(log_dir, exist_ok=True)
+
+    return log_dir
