@@ -36,20 +36,20 @@ yticklabels={0.0,0.2,0.4,0.6,0.8,1.0}
 \draw[draw=black,fill=color0] (axis cs:0.3,0) rectangle (axis cs:0.4,0.0171027296409559);
 \draw[draw=black,fill=color0] (axis cs:0.4,0) rectangle (axis cs:0.5,0.0337524068410919);
 \draw[draw=black,fill=color0] (axis cs:0.5,0) rectangle (axis cs:0.6,0.0489296636085627);
-\draw[draw=black,fill=color0] (axis cs:0.6,0) rectangle (axis cs:0.7,0.0573111337637332);
-\draw[draw=black,fill=color0] (axis cs:0.7,0) rectangle (axis cs:0.8,0.0671650243515687);
-\draw[draw=black,fill=color0] (axis cs:0.8,0) rectangle (axis cs:0.9,0.0886850152905199);
-\draw[draw=black,fill=color0] (axis cs:0.9,0) rectangle (axis cs:1,0.682636765205573);
+\draw[draw=black,fill=color0] (axis cs:0.6,0) rectangle (axis cs:0.7,0.0571978706535281);
+\draw[draw=black,fill=color0] (axis cs:0.7,0) rectangle (axis cs:0.8,0.0672782874617737);
+\draw[draw=black,fill=color0] (axis cs:0.8,0) rectangle (axis cs:0.9,0.0885717521803149);
+\draw[draw=black,fill=color0] (axis cs:0.9,0) rectangle (axis cs:1,0.682750028315778);
 \addplot [semithick, black, dashed]
 table {%
-0.788651036357458 0
-0.788651036357458 1
+0.788764299467663 0
+0.788764299467663 1
 };
 \addlegendentry{Avg. Accuracy}
 \addplot [semithick, white!50.1960784313725!black, dashed]
 table {%
-0.88505619764328 0
-0.88505619764328 1
+0.885055541992188 0
+0.885055541992188 1
 };
 \addlegendentry{Avg. Confidence}
 
@@ -84,21 +84,21 @@ yticklabels={0.0,0.2,0.4,0.6,0.8,1.0}
 \draw[draw=black,fill=color0] (axis cs:0.2,0) rectangle (axis cs:0.3,0.358974358974359);
 \draw[draw=black,fill=color0] (axis cs:0.3,0) rectangle (axis cs:0.4,0.304635761589404);
 \draw[draw=black,fill=color0] (axis cs:0.4,0) rectangle (axis cs:0.5,0.325503355704698);
-\draw[draw=black,fill=color0] (axis cs:0.5,0) rectangle (axis cs:0.6,0.451388888888889);
-\draw[draw=black,fill=color0] (axis cs:0.6,0) rectangle (axis cs:0.7,0.553359683794466);
-\draw[draw=black,fill=color0] (axis cs:0.7,0) rectangle (axis cs:0.8,0.553119730185497);
-\draw[draw=black,fill=color0] (axis cs:0.8,0) rectangle (axis cs:0.9,0.657726692209451);
-\draw[draw=black,fill=color0] (axis cs:0.9,0) rectangle (axis cs:1,0.910569105691057);
+\draw[draw=black,fill=color0] (axis cs:0.5,0) rectangle (axis cs:0.6,0.453703703703704);
+\draw[draw=black,fill=color0] (axis cs:0.6,0) rectangle (axis cs:0.7,0.552475247524753);
+\draw[draw=black,fill=color0] (axis cs:0.7,0) rectangle (axis cs:0.8,0.553872053872054);
+\draw[draw=black,fill=color0] (axis cs:0.8,0) rectangle (axis cs:0.9,0.658567774936061);
+\draw[draw=black,fill=color0] (axis cs:0.9,0) rectangle (axis cs:1,0.91041804910418);
 \draw[draw=black,fill=red,opacity=0.6] (axis cs:-6.93889390390723e-18,0.05) rectangle (axis cs:0.1,0.05);
 \draw[draw=black,fill=red,opacity=0.6] (axis cs:0.1,0.15) rectangle (axis cs:0.2,0.15);
-\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.2,0.358974358974359) rectangle (axis cs:0.3,0.273949438944841);
-\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.3,0.304635761589404) rectangle (axis cs:0.4,0.358255701744004);
-\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.4,0.325503355704698) rectangle (axis cs:0.5,0.454334709368296);
-\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.5,0.451388888888889) rectangle (axis cs:0.6,0.548118069767952);
-\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.6,0.553359683794466) rectangle (axis cs:0.7,0.651133970780806);
-\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.7,0.553119730185497) rectangle (axis cs:0.8,0.75359056631188);
-\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.8,0.657726692209451) rectangle (axis cs:0.9,0.853065704020504);
-\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.9,0.910569105691057) rectangle (axis cs:1,0.984386544006469);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.2,0.358974358974359) rectangle (axis cs:0.3,0.273977011060103);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.3,0.304635761589404) rectangle (axis cs:0.4,0.358256201278295);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.4,0.325503355704698) rectangle (axis cs:0.5,0.454317774148595);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.5,0.453703703703704) rectangle (axis cs:0.6,0.548109235724917);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.6,0.552475247524753) rectangle (axis cs:0.7,0.65103919624102);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.7,0.553872053872054) rectangle (axis cs:0.8,0.753503438699928);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.8,0.658567774936061) rectangle (axis cs:0.9,0.853007181678587);
+\draw[draw=black,fill=red,opacity=0.6] (axis cs:0.9,0.91041804910418) rectangle (axis cs:1,0.984372350332273);
 \addplot [semithick, red, dashed]
 table {%
 0 0
