@@ -47,6 +47,6 @@ def get_model(datamodule: DataModule, args, ckpt_path: str | None = None):
 
     if ckpt_path is not None:
         print(f"Loading model from {ckpt_path}.")
-        f.load_state_dict(t.load(ckpt_path))
+        f.load_state_dict(t.load(ckpt_path)["model_state_dict"])
 
     return f
