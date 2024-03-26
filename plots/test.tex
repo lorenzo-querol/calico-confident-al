@@ -1,0 +1,420 @@
+% This file was created by tikzplotlib v0.9.8.
+\begin{tikzpicture}
+
+\begin{groupplot}[group style={group size=2 by 3}]
+\nextgroupplot[
+legend cell align={left},
+legend style={
+  fill opacity=0.8,
+  draw opacity=1,
+  text opacity=1,
+  at={(0.97,0.03)},
+  anchor=south east,
+  draw=white!80!black
+},
+tick align=outside,
+tick pos=left,
+x grid style={white!69.0196078431373!black},
+xlabel={Number of Labeled Samples},
+xmajorgrids,
+xmin=62.5, xmax=4187.5,
+xtick style={color=black},
+y grid style={white!69.0196078431373!black},
+ylabel={Accuracy},
+ymajorgrids,
+ymin=0.805489640235901, ymax=0.984337885379791,
+ytick style={color=black}
+]
+\addplot [semithick, blue, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.825489640235901
+500 0.892136812210083
+750 0.923998832702637
+1000 0.924583435058594
+1250 0.937152862548828
+1500 0.944460690021515
+1750 0.927506566047668
+2000 0.945045292377472
+2250 0.954983949661255
+2500 0.957907021045685
+2750 0.964337885379791
+3000 0.956737816333771
+3250 0.957030117511749
+3500 0.951768517494202
+3750 0.953230023384094
+4000 0.959953248500824
+};
+\addlegendentry{CALICO}
+\addplot [semithick, red, dotted, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.868167221546173
+500 0.911429405212402
+750 0.928968131542206
+1000 0.92633730173111
+1250 0.92809122800827
+1500 0.939491391181946
+1750 0.934814393520355
+2000 0.946506857872009
+2250 0.945922255516052
+2500 0.949429988861084
+2750 0.954691588878632
+3000 0.949429988861084
+3250 0.95206081867218
+3500 0.953522384166718
+3750 0.952353119850159
+4000 0.954399287700653
+};
+\addlegendentry{Active}
+\addplot [semithick, black, dashed]
+table {%
+62.5 0.958199381828308
+4187.5 0.958199381828308
+};
+\addlegendentry{Baseline}
+
+\nextgroupplot[
+legend cell align={left},
+legend style={fill opacity=0.8, draw opacity=1, text opacity=1, draw=white!80!black},
+tick align=outside,
+tick pos=left,
+x grid style={white!69.0196078431373!black},
+xlabel={Number of Labeled Samples},
+xmajorgrids,
+xmin=62.5, xmax=4187.5,
+xtick style={color=black},
+y grid style={white!69.0196078431373!black},
+ylabel={ECE},
+ymajorgrids,
+ymin=0, ymax=0.14028950427541,
+ytick style={color=black}
+]
+\addplot [semithick, blue, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.12028950427541
+500 0.0507330650110336
+750 0.0429472037398024
+1000 0.0405861239829142
+1250 0.0247380118365177
+1500 0.0213889166281538
+1750 0.0312665760499697
+2000 0.0213127584528484
+2250 0.0147718734749574
+2500 0.0191989942396359
+2750 0.0053744250154398
+3000 0.0139802706691124
+3250 0.0177186637271812
+3500 0.0108063375695481
+3750 0.0131873470915928
+4000 0.0056119808430073
+};
+\addlegendentry{CALICO}
+\addplot [semithick, red, dotted, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.0746993319972918
+500 0.0499276024003852
+750 0.0373430586077253
+1000 0.0412774340812312
+1250 0.0387081840396519
+1500 0.0272616542281202
+1750 0.0423789720495553
+2000 0.0268543030270635
+2250 0.0255889633844136
+2500 0.020945970765055
+2750 0.0176977032598993
+3000 0.0260976939931734
+3250 0.0173438738065655
+3500 0.019804658395998
+3750 0.0190598501147878
+4000 0.0187202896144228
+};
+\addlegendentry{Active}
+\addplot [semithick, black, dashed]
+table {%
+62.5 0.0095284374545659
+4187.5 0.0095284374545659
+};
+\addlegendentry{Baseline}
+
+\nextgroupplot[
+legend cell align={left},
+legend style={
+  fill opacity=0.8,
+  draw opacity=1,
+  text opacity=1,
+  at={(0.97,0.03)},
+  anchor=south east,
+  draw=white!80!black
+},
+tick align=outside,
+tick pos=left,
+x grid style={white!69.0196078431373!black},
+xlabel={Number of Labeled Samples},
+xmajorgrids,
+xmin=62.5, xmax=4187.5,
+xtick style={color=black},
+y grid style={white!69.0196078431373!black},
+ylabel={Accuracy},
+ymajorgrids,
+ymin=0.753222088813782, ymax=0.923483331203461,
+ytick style={color=black}
+]
+\addplot [semithick, blue, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.798863112926483
+500 0.841678738594055
+750 0.852080285549164
+1000 0.865384638309479
+1250 0.869496881961823
+1500 0.88316398859024
+1750 0.877116620540619
+2000 0.885462045669556
+2250 0.891267538070679
+2500 0.891630411148071
+2750 0.86840832233429
+3000 0.895137906074524
+3250 0.821480393409729
+3500 0.889937102794647
+3750 0.903483331203461
+4000 0.90287858247757
+};
+\addlegendentry{CALICO}
+\addplot [semithick, red, dotted, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.773222088813782
+500 0.82051283121109
+750 0.856676340103149
+1000 0.860425710678101
+1250 0.868166446685791
+1500 0.869013071060181
+1750 0.878326058387756
+2000 0.876148998737335
+2250 0.884978234767914
+2500 0.891388475894928
+2750 0.888485729694366
+3000 0.896105468273163
+3250 0.832607626914978
+3500 0.897919714450836
+3750 0.897435903549194
+4000 0.885703921318054
+};
+\addlegendentry{Active}
+\addplot [semithick, black, dashed]
+table {%
+62.5 0.895258843898773
+4187.5 0.895258843898773
+};
+\addlegendentry{Baseline}
+
+\nextgroupplot[
+legend cell align={left},
+legend style={fill opacity=0.8, draw opacity=1, text opacity=1, draw=white!80!black},
+tick align=outside,
+tick pos=left,
+x grid style={white!69.0196078431373!black},
+xlabel={Number of Labeled Samples},
+xmajorgrids,
+xmin=62.5, xmax=4187.5,
+xtick style={color=black},
+y grid style={white!69.0196078431373!black},
+ylabel={ECE},
+ymajorgrids,
+ymin=0.0102237819882049, ymax=0.142377477519585,
+ytick style={color=black}
+]
+\addplot [semithick, blue, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.121067874820251
+500 0.0916890278728935
+750 0.0921325724270964
+1000 0.0707641166401013
+1250 0.0711196301821268
+1500 0.0543115359785537
+1750 0.0547812935370405
+2000 0.044619462684871
+2250 0.0512252902647234
+2500 0.0406935078654678
+2750 0.0376108539136181
+3000 0.0389569385917105
+3250 0.104448011659543
+3500 0.0438349614875957
+3750 0.0396911380573724
+4000 0.0302237819882049
+};
+\addlegendentry{CALICO}
+\addplot [semithick, red, dotted, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.122377477519585
+500 0.104952840497659
+750 0.0822218456433974
+1000 0.0817967112017069
+1250 0.0691739151521933
+1500 0.0692183809669397
+1750 0.0677123884893467
+2000 0.0658020863159013
+2250 0.0598023568388627
+2500 0.0554599688592513
+2750 0.0591421059878424
+3000 0.0496050337456566
+3250 0.0899571895772383
+3500 0.0495574903815451
+3750 0.041664597268807
+4000 0.0576723532460136
+};
+\addlegendentry{Active}
+\addplot [semithick, black, dashed]
+table {%
+62.5 0.0532503908938927
+4187.5 0.0532503908938927
+};
+\addlegendentry{Baseline}
+
+\nextgroupplot[
+legend cell align={left},
+legend style={
+  fill opacity=0.8,
+  draw opacity=1,
+  text opacity=1,
+  at={(0.97,0.03)},
+  anchor=south east,
+  draw=white!80!black
+},
+tick align=outside,
+tick pos=left,
+x grid style={white!69.0196078431373!black},
+xlabel={Number of Labeled Samples},
+xmajorgrids,
+xmin=62.5, xmax=4187.5,
+xtick style={color=black},
+y grid style={white!69.0196078431373!black},
+ylabel={Accuracy},
+ymajorgrids,
+ymin=0.802115361690521, ymax=0.912628192901611,
+ytick style={color=black}
+]
+\addplot [semithick, blue, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.847756385803223
+500 0.875
+750 0.889423072338104
+1000 0.892628192901611
+1250 0.887820541858673
+1500 0.873397409915924
+1750 0.881410241127014
+2000 0.879807710647583
+2250 0.879807710647583
+2500 0.887820541858673
+2750 0.884615361690521
+3000 0.86698716878891
+3250 0.870192289352417
+3500 0.884615361690521
+3750 0.88301283121109
+4000 0.862179458141327
+};
+\addlegendentry{CALICO}
+\addplot [semithick, red, dotted, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.822115361690521
+500 0.836538434028625
+750 0.844551265239716
+1000 0.844551265239716
+1250 0.854166686534882
+1500 0.873397409915924
+1750 0.892628192901611
+2000 0.876602590084076
+2250 0.873397409915924
+2500 0.881410241127014
+2750 0.857371807098389
+3000 0.86698716878891
+3250 0.881410241127014
+3500 0.884615361690521
+3750 0.88301283121109
+4000 0.876602590084076
+};
+\addlegendentry{Active}
+\addplot [semithick, black, dashed]
+table {%
+62.5 0.876602590084076
+4187.5 0.876602590084076
+};
+\addlegendentry{Baseline}
+
+\nextgroupplot[
+legend cell align={left},
+legend style={fill opacity=0.8, draw opacity=1, text opacity=1, draw=white!80!black},
+tick align=outside,
+tick pos=left,
+x grid style={white!69.0196078431373!black},
+xlabel={Number of Labeled Samples},
+xmajorgrids,
+xmin=62.5, xmax=4187.5,
+xtick style={color=black},
+y grid style={white!69.0196078431373!black},
+ylabel={ECE},
+ymajorgrids,
+ymin=0.0772822668784798, ymax=0.192336402890645,
+ytick style={color=black}
+]
+\addplot [semithick, blue, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.139557288651129
+500 0.115225150172066
+750 0.104184235603567
+1000 0.0981726749066436
+1250 0.102549841996008
+1500 0.115866636745469
+1750 0.107952312450091
+2000 0.106295912934724
+2250 0.108450589826927
+2500 0.102709747519419
+2750 0.104318561625848
+3000 0.121360382470765
+3250 0.128732975391545
+3500 0.102095171802655
+3750 0.105833198279237
+4000 0.118779369196184
+};
+\addlegendentry{CALICO}
+\addplot [semithick, red, dotted, mark=*, mark size=2, mark options={solid}]
+table {%
+250 0.172336402890645
+500 0.158731931223841
+750 0.145763470785543
+1000 0.142727371509886
+1250 0.141893528956183
+1500 0.119684943778275
+1750 0.0972822668784798
+2000 0.114158021110602
+2250 0.117430054628022
+2500 0.115513719889924
+2750 0.129867247445954
+3000 0.126669803625728
+3250 0.117719268400178
+3500 0.115370588632358
+3750 0.119889003774179
+4000 0.123319206300934
+};
+\addlegendentry{Active}
+\addplot [semithick, black, dashed]
+table {%
+62.5 0.12331331743378
+4187.5 0.12331331743378
+};
+\addlegendentry{Baseline}
+\end{groupplot}
+
+\draw ({$(current bounding box.south west)!0.5!(current bounding box.south east)$}|-{$(current bounding box.south west)!0.63!(current bounding box.north west)$}) node[
+  scale=0.8,
+  text=black,
+  rotate=0.0
+]{(a) BloodMNIST};
+\draw ({$(current bounding box.south west)!0.5!(current bounding box.south east)$}|-{$(current bounding box.south west)!0.335!(current bounding box.north west)$}) node[
+  scale=0.8,
+  text=black,
+  rotate=0.0
+]{(b) OrganCMNIST};
+\draw ({$(current bounding box.south west)!0.5!(current bounding box.south east)$}|-{$(current bounding box.south west)!0.04!(current bounding box.north west)$}) node[
+  scale=0.8,
+  text=black,
+  rotate=0.0
+]{(c) PneumoniaMNIST};
+\end{tikzpicture}
