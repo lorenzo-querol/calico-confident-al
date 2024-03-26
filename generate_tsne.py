@@ -1,96 +1,67 @@
+from utils import parse_args
+from DataModule import DataModule
+from models.JEM import get_model, get_optim
+from accelerate.utils import set_seed
 import torch as t
-from utils import DataModule, load_config
-from accelerate import Accelerator
-from pathlib import Path
-import argparse
-from models.JEM import get_model_and_buffer
 from sklearn.manifold import TSNE
-import pandas as pd
-import os
-import seaborn as sns
 import matplotlib.pyplot as plt
+import matplotlib
+import pandas as pd
 from tqdm import tqdm
 
-
-def get_tsne(model, dload_train, device, n_samples=1000, n_components=2, perplexity=30, n_iter=1000, lr=200, random_state=0):
-    """
-    Returns the t-SNE embedding of the model's latent space.
-    """
-
-    # generate features
-    features = []
-    labels = []
-
-    model = model.to("cuda")
-    for i, batch in enumerate(tqdm(dload_train, desc="Generating features")):
-        x, y = batch
-        x = x.to("cuda")
-        y = y.to("cuda")
-        features.append(model.feature(x).detach().cpu())
-        labels.append(y.detach().cpu())
-
-    features = t.cat(features, dim=0)
-    labels = t.cat(labels, dim=0)
-
-    # sample
-    tsne = TSNE(random_state=0)
-    tsne_output = tsne.fit_transform(features)
-
-    df = pd.DataFrame(tsne_output, columns=["x", "y"])
-    df["targets"] = labels
-    df["targets"] = df["targets"].apply(lambda x: datamodule.classnames[x])
-
-    plt.rcParams["figure.figsize"] = 10, 10
-    scatter_plot = sns.scatterplot(
-        x="x",
-        y="y",
-        hue="targets",
-        palette=sns.color_palette("hls", datamodule.n_classes),
-        data=df,
-        marker="o",
-        legend="full",
-        alpha=0.75,
-    )
-    scatter_plot.legend(bbox_to_anchor=(1.05, 1), loc="upper right")
-
-    plt.xticks([])
-    plt.yticks([])
-    plt.xlabel("")
-    plt.ylabel("")
-
-    plt.savefig(os.path.join("./", f"tsne_{datamodule.dataset}.png"), bbox_inches="tight")
-    print("done!")
+args = parse_args()
+set_seed(args.seed)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser("Active Learning with JEM++")
+datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
+datamodule.test_setup(test_dir=args.log_dir)
+dload_test = datamodule.test_dataloader()
 
-    parser.add_argument("--model_config", type=str, default="configs/jempp_hparams.yml", help="Path to the config file.")
-    parser.add_argument("--dataset_config", type=str, default="configs/cifar10.yml", help="Path to the config file.")
-    args = parser.parse_args()
+# ckpt_path = None
+ckpt_path = "runs/pneumoniamnist/equal-jempp-adam/checkpoints/num-labels-2400_last.ckpt"
+f = get_model(datamodule, args, ckpt_path)
+device = "cuda" if t.cuda.is_available() else "cpu"
+f = f.to(device)
 
-    model_config = load_config(Path(args.model_config))
-    dataset_config = load_config(Path(args.dataset_config))
-    config = {**model_config, **dataset_config}
+features = []
+labels = []
 
-    accelerator = Accelerator()
-    datamodule = DataModule(accelerator=accelerator, **config)
-    dload_train, dload_train_labeled, dload_train_unlabeled, dload_valid, train_labeled_inds, train_unlabeled_inds = datamodule.get_data()
+for i, (x, y) in enumerate(tqdm(dload_test, desc="Generating features")):
+    x, y = x.to(device), y.to(device)
+    features.append(f.feature(x).detach().cpu())
+    labels.append(y.detach().cpu())
 
-    f, replay_buffer = get_model_and_buffer(accelerator=accelerator, datamodule=datamodule, **config)
+features = t.cat(features, dim=0)
+labels = t.cat(labels, dim=0)
 
-    ckpt = t.load("/home/lorenzo/repos/JEMPP/runs/2023-12-06_21-11-29_bloodmnist_l760ez83/checkpoints/baseline_6400/epoch=77-val_loss=0.1389.ckpt")
-    f.load_state_dict(ckpt["model_state_dict"])
+tsne = TSNE(random_state=args.seed)
+tsne_output = tsne.fit_transform(features)
 
-    # Get the t-SNE embedding of the latent space
-    z_tsne = get_tsne(
-        f,
-        dload_train,
-        accelerator.device,
-        n_samples=1000,
-        n_components=2,
-        perplexity=30,
-        n_iter=1000,
-        lr=200,
-        random_state=0,
-    )
+
+df = pd.DataFrame(tsne_output, columns=["x", "y"])
+df["targets"] = labels
+df["targets"] = df["targets"].apply(lambda x: datamodule.classes[x])
+
+# Define a colormap
+cmap = plt.cm.get_cmap("viridis", len(df["targets"].unique()))
+
+fig, ax = plt.subplots(figsize=(8, 6), dpi=600)
+
+scatter_plot = ax.scatter(x=df["x"], y=df["y"], s=1, c=df["targets"].astype("category").cat.codes, cmap=cmap, alpha=0.8)
+
+ax.set_xlabel("")
+ax.set_ylabel("")
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_title(f'{args.dataset} {ckpt_path.split("/")[2]}', fontsize=14)
+
+targets = df["targets"].unique()
+colors = [cmap(i) for i in range(len(targets))]
+
+patches = [matplotlib.patches.Patch(color=colors[i], label=target) for i, target in enumerate(targets)]
+
+ax.legend(handles=patches, bbox_to_anchor=(0.5, -0.05), loc="upper center", ncol=5)
+
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+plt.savefig(f'plots/{args.dataset}_{ckpt_path.split("/")[2]}_tsne.png')

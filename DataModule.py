@@ -31,7 +31,7 @@ class DataSubset(Dataset):
 
 
 class DataModule:
-    def __init__(self, dataset: str, root_dir: str = "./data", batch_size: int = 64, sigma: float = 3e-2):
+    def __init__(self, dataset: str, root_dir: str, batch_size: int, sigma: float):
         self.sigma = sigma
         self.batch_size = batch_size
         self.root_dir = root_dir
