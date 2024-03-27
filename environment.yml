@@ -1,4 +1,4 @@
-name: JEMPP
+name: calico
 channels:
   - pytorch
   - nvidia

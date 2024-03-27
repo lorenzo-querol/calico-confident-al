@@ -1,13 +1,14 @@
-from utils import parse_args
+import matplotlib
+import matplotlib.pyplot as plt
+import pandas as pd
+import torch as t
+from accelerate.utils import set_seed
+from sklearn.manifold import TSNE
+from tqdm import tqdm
+
 from DataModule import DataModule
 from models.JEM import get_model, get_optim
-from accelerate.utils import set_seed
-import torch as t
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
-import matplotlib
-import pandas as pd
-from tqdm import tqdm
+from utils import parse_args
 
 args = parse_args()
 set_seed(args.seed)
@@ -18,7 +19,7 @@ datamodule.test_setup(test_dir=args.log_dir)
 dload_test = datamodule.test_dataloader()
 
 # ckpt_path = None
-ckpt_path = "runs/pneumoniamnist/equal-jempp-adam/checkpoints/num-labels-2400_last.ckpt"
+ckpt_path = "runs/pneumoniamnist/baseline-softmax/checkpoints/num-labels-4000_last.ckpt"
 f = get_model(datamodule, args, ckpt_path)
 device = "cuda" if t.cuda.is_available() else "cpu"
 f = f.to(device)
@@ -40,7 +41,7 @@ tsne_output = tsne.fit_transform(features)
 
 df = pd.DataFrame(tsne_output, columns=["x", "y"])
 df["targets"] = labels
-df["targets"] = df["targets"].apply(lambda x: datamodule.classes[x])
+# df["targets"] = df["targets"].apply(lambda x: datamodule.classes[x])
 
 # Define a colormap
 cmap = plt.cm.get_cmap("viridis", len(df["targets"].unique()))
