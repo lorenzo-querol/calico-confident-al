@@ -23,7 +23,6 @@ import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision as tv
-from accelerate.utils import set_seed
 from netcal.metrics import ECE
 from netcal.presentation import ReliabilityDiagram
 from tensorboardX import SummaryWriter
@@ -32,8 +31,7 @@ from tqdm import tqdm
 
 from DataModule import DataModule
 from models.JEM import get_model, get_optim
-from temperature_scaling import ModelWithTemperature
-from utils import Hamiltonian, create_log_dir, parse_args, write_to_yaml
+from utils import Hamiltonian, create_log_dir, initialize, parse_args, write_to_yaml
 
 conditionals = []
 
@@ -423,7 +421,52 @@ MEDMNIST_DATASETS = ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "
 LIMIT_DICTS = {"bloodmnist": 4000, "organcmnist": 3850, "organsmnist": 3850, "pneumoniamnist": 2000}
 
 
-def train_model(args):
+# def test_model(args):
+#     datasets = os.walk(args.log_dir).__next__()[1]
+
+#     for dataset in datasets:
+#         args.dataset = dataset
+#         exp_types = os.walk(f"{args.log_dir}/{args.dataset}").__next__()[1]
+#         datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
+
+#         for exp_type in exp_types:
+#             if args.temp_scale and exp_type in ["baseline-softmax", "active-jempp", "equal-jempp"]:
+#                 continue
+
+#             type = exp_type
+
+#             if args.temp_scale:
+#                 type = type + "-temp_scaled"
+
+#             TEST_PATH = f"{args.test_dir}/{datamodule.dataset}/{type}"
+
+#             if os.path.exists(TEST_PATH):
+#                 shutil.rmtree(TEST_PATH, ignore_errors=True)
+#                 os.makedirs(TEST_PATH, exist_ok=True)
+#             else:
+#                 os.makedirs(TEST_PATH, exist_ok=True)
+
+#             datamodule.test_setup(TEST_PATH)
+
+#             CKPT_DIR = f"{args.log_dir}/{args.dataset}/{exp_type}/checkpoints"
+#             ckpts = [name for name in os.listdir(CKPT_DIR) if args.ckpt_type in name]
+#             ckpts = [{"num_labeled": int(ckpt.split("_")[0].split("-")[-1]), "path": f"{CKPT_DIR}/{ckpt}"} for ckpt in ckpts]
+#             ckpts = sorted(ckpts, key=lambda x: x["num_labeled"])
+
+#             for ckpt in ckpts:
+#                 print(f"\n|---Testing Model with {ckpt['num_labeled']} Labeled Samples---|")
+#                 model = get_model(datamodule, args, ckpt["path"])
+
+#                 if args.temp_scale:
+#                     model.set_temperature(datamodule.val_dataloader())
+
+#                 test(model.model if args.temp_scale else model, datamodule, TEST_PATH, ckpt["num_labeled"])
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    initialize(args.seed)
+
     datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
 
     LIMIT = 4000
@@ -482,61 +525,3 @@ def train_model(args):
                 datamodule.setup(indices_to_fix=indices_to_fix, start_iter=False, log_dir=log_dir)
 
     writer.close()
-
-
-def test_model(args):
-    datasets = os.walk(args.log_dir).__next__()[1]
-
-    for dataset in datasets:
-        if dataset != "pneumoniamnist":
-            continue
-        args.dataset = dataset
-        exp_types = os.walk(f"{args.log_dir}/{args.dataset}").__next__()[1]
-        datamodule = DataModule(dataset=args.dataset, root_dir=args.root_dir, batch_size=args.batch_size, sigma=args.sigma)
-
-        for exp_type in exp_types:
-            if args.temp_scale and exp_type in ["baseline-softmax", "active-jempp", "equal-jempp"]:
-                continue
-
-            type = exp_type
-
-            if args.temp_scale:
-                type = type + "-temp_scaled"
-
-            TEST_PATH = f"{args.test_dir}/{datamodule.dataset}/{type}"
-
-            if os.path.exists(TEST_PATH):
-                shutil.rmtree(TEST_PATH, ignore_errors=True)
-                os.makedirs(TEST_PATH, exist_ok=True)
-            else:
-                os.makedirs(TEST_PATH, exist_ok=True)
-
-            datamodule.test_setup(TEST_PATH)
-
-            CKPT_DIR = f"{args.log_dir}/{args.dataset}/{exp_type}/checkpoints"
-            ckpts = [name for name in os.listdir(CKPT_DIR) if args.ckpt_type in name]
-            ckpts = [{"num_labeled": int(ckpt.split("_")[0].split("-")[-1]), "path": f"{CKPT_DIR}/{ckpt}"} for ckpt in ckpts]
-            ckpts = sorted(ckpts, key=lambda x: x["num_labeled"])
-
-            for ckpt in ckpts:
-                print(f"\n|---Testing Model with {ckpt['num_labeled']} Labeled Samples---|")
-                model = get_model(datamodule, args, ckpt["path"])
-
-                if args.temp_scale:
-                    model = ModelWithTemperature(model)
-                    model.set_temperature(datamodule.val_dataloader())
-
-                test(model.model if args.temp_scale else model, datamodule, TEST_PATH, ckpt["num_labeled"])
-
-
-if __name__ == "__main__":
-    t.backends.cudnn.enabled = True
-    t.backends.cudnn.deterministic = True
-
-    args = parse_args()
-    set_seed(args.seed)
-
-    if not args.test:
-        assert args.exp_name is not None, "Experiment name must be provided."
-
-    test_model(args) if args.test else train_model(args)

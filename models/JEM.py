@@ -1,15 +1,15 @@
+from argparse import Namespace
 import torch as t
 import torch.nn as nn
 
-from DataModule import DataModule
-from models.WideResNet import WideResNet
-from models.WideResNetYOPO import WideResNetYOPO
+from DataModule import MedMNISTDataModule
+from models.Wide_ResNet_YOPO import Wide_ResNet
 
 
 class F(nn.Module):
-    def __init__(self, depth: int, width: int, norm: str | None, n_classes: int, n_channels: int, model: str, **config):
+    def __init__(self, depth: int, width: int, norm: str | None, n_classes: int, n_channels: int, **config):
         super(F, self).__init__()
-        self.f = WideResNetYOPO(depth, width, n_channels, norm=norm) if model == "yopo" else WideResNet(depth, width, n_channels, norm=norm)
+        self.f = Wide_ResNet(depth, width, n_channels, norm=norm)
         self.energy_output = nn.Linear(self.f.last_dim, 1)
         self.class_output = nn.Linear(self.f.last_dim, n_classes)
 
@@ -26,7 +26,7 @@ class F(nn.Module):
         return self.class_output(z).squeeze()
 
 
-def get_optim(model: nn.Module, args):
+def get_optim(model: nn.Module, args: Namespace):
     optimizers = {"adam": t.optim.Adam, "sgd": t.optim.SGD}
 
     if args.optim not in optimizers:
@@ -42,11 +42,11 @@ def get_optim(model: nn.Module, args):
     return base_optim(**optim_params)
 
 
-def get_model(datamodule: DataModule, args, ckpt_path: str | None = None):
-    f = F(args.depth, args.width, args.norm, datamodule.n_classes, datamodule.img_shape[0], args.model)
+def get_model(datamodule: MedMNISTDataModule, args: Namespace, ckpt_path: str | None = None):
+    f = F(args.depth, args.width, args.norm, datamodule.n_classes, datamodule.img_shape[0])
 
     if ckpt_path is not None:
-        print(f"Loading model from {ckpt_path}.")
+        print(f"Loading model from {ckpt_path}")
         f.load_state_dict(t.load(ckpt_path)["model_state_dict"])
 
     return f

@@ -3,6 +3,11 @@ import argparse
 import torch
 import yaml
 from torch.nn.modules.loss import _Loss
+import random
+import numpy as np
+import pandas as pd
+import os
+from sklearn.metrics import confusion_matrix
 
 
 class Hamiltonian(_Loss):
@@ -17,11 +22,59 @@ class Hamiltonian(_Loss):
         return H
 
 
+def initialize(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def log_class_dist(labeled_labels, labeled_indices, classes, log_dir):
+    labels, counts = np.unique(labeled_labels, return_counts=True)
+    distribution_dict = {}
+    distribution_dict["num_labeled"] = [len(labeled_indices)]
+
+    for label, count in zip(labels, counts):
+        distribution_dict[label] = [count]
+
+    print("Class Distribution:")
+    for key, value in distribution_dict.items():
+        if key == "num_labeled":
+            continue
+        print(f"Class {key}: {value[0]}")
+
+    distribution_df = pd.DataFrame(distribution_dict)
+    distribution_df.columns = ["num_labeled"] + classes
+
+    if os.path.exists(f"{log_dir}/class_dist.csv"):
+        distribution_df.to_csv(f"{log_dir}/class_dist.csv", mode="a", header=False, index=False)
+    else:
+        distribution_df.to_csv(f"{log_dir}/class_dist.csv", mode="w", header=True, index=False)
+
+
+# def log_acc_per_class(y_true, y_pred, n_classes, classes, labeled_indices, log_dir):
+#     cm = confusion_matrix(y_true, y_pred, labels=list(range(n_classes)))
+#     accuracies = cm.diagonal() / cm.sum(axis=1)
+#     accuracies_df = pd.DataFrame(accuracies).T
+
+#     num_labeled_df = pd.DataFrame([len(labeled_indices)], columns=["num_labeled"])
+#     accuracies_df = pd.concat([num_labeled_df, accuracies_df], axis=1)
+
+#     accuracies_df.columns = ["num_labeled"] + classes
+
+#     if os.path.exists(f"{log_dir}/acc_per_class.csv"):
+#         accuracies_df.to_csv(f"{log_dir}/acc_per_class.csv", mode="a", header=False, index=False)
+#     else:
+#         accuracies_df.to_csv(f"{log_dir}/acc_per_class.csv", mode="w", header=True, index=False)
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
 
     # Arguments without default values
-    parser.add_argument("--model", type=str)
     parser.add_argument("--lr", type=float)
     parser.add_argument("--optim", type=str)
     parser.add_argument("--norm", type=str, choices=["none", "batch"])
@@ -32,9 +85,6 @@ def parse_args():
     parser.add_argument("--n_steps", type=int)
     parser.add_argument("--in_steps", type=int)
     parser.add_argument("--query_size", type=int)
-    parser.add_argument("--sample_method", type=str)
-    parser.add_argument("--test", action="store_true")
-    parser.add_argument("--temp_scale", action="store_true")
 
     # Arguments with default values
     parser.add_argument("--dataset", type=str, default=None)
