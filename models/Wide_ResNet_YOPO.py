@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch.nn as nn
-import torch.nn.init as init
-import torch.nn.functional as F
 import numpy as np
-from .norms import get_norm, Identity
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.nn.init as init
+
+from .norms import Identity, get_norm
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -37,7 +38,7 @@ def conv_init(m):
 class wide_basic(nn.Module):
     def __init__(self, in_planes, planes, dropout_rate, stride=1, norm=None, leak=0.2):
         super(wide_basic, self).__init__()
-        self.lrelu = nn.LeakyReLU(leak)
+        self.lrelu = nn.SiLU()
         self.bn1 = get_norm(in_planes, norm)
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
         self.dropout = Identity() if dropout_rate == 0.0 else nn.Dropout(p=dropout_rate)
@@ -59,13 +60,12 @@ class wide_basic(nn.Module):
 
 
 class Wide_ResNet(nn.Module):
-    def __init__(self, depth, widen_factor, num_classes=10, input_channels=3, sum_pool=False, norm=None, leak=0.2, dropout_rate=0.0):
+    def __init__(self, depth, widen_factor, input_channels, sum_pool=False, norm=None, leak=0.2, dropout_rate=0.0):
         super(Wide_ResNet, self).__init__()
         self.in_planes = 16
         self.sum_pool = sum_pool
         self.norm = norm
-        self.lrelu = nn.LeakyReLU(leak)
-        self.n_classes = num_classes
+        self.lrelu = nn.SiLU()
 
         assert (depth - 4) % 6 == 0, "Wide-resnet depth should be 6n+4"
         n = (depth - 4) // 6

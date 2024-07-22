@@ -1,13 +1,15 @@
 import argparse
-
-import torch
-import yaml
-from torch.nn.modules.loss import _Loss
+import os
 import random
+
 import numpy as np
 import pandas as pd
-import os
+import torch
+import yaml
+from netcal.metrics import ECE
+from netcal.presentation import ReliabilityDiagram
 from sklearn.metrics import confusion_matrix
+from torch.nn.modules.loss import _Loss
 
 
 class Hamiltonian(_Loss):
@@ -30,6 +32,37 @@ def initialize(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+def compute_ece(confs: np.ndarray, gts: np.ndarray, n_classes: int, save_rel_diagram=False, save_path=None):
+    """
+    Computes the Expected Calibration Error (ECE) of a model.
+
+    #### params:
+    - confs: numpy array of shape (n_samples, n_classes)
+        - The confidence scores for each sample.
+    - gts: numpy array of shape (n_samples,)
+        - The ground truth labels for each sample.
+    - n_classes: int
+        - The number of classes in the dataset.
+
+    #### returns:
+    - ece: float
+        - The Expected Calibration Error (ECE) of the model.
+    """
+
+    confs, gts = np.concatenate(confs), np.concatenate(gts)
+    all_confs = confs.reshape((-1, n_classes))
+
+    BINS = 10
+    ece = ECE(BINS).measure(all_confs, gts)
+
+    if save_rel_diagram:
+        assert save_path is not None, "'save_path' must be provided if 'save_rel_diagram' == True"
+        ReliabilityDiagram(BINS).plot(all_confs, gts, filename=save_path, tikz=True)
+        ReliabilityDiagram(BINS).plot(all_confs, gts, filename=save_path.replace(".tikz", ".png"))
+
+    return ece
 
 
 def log_class_dist(labeled_labels, labeled_indices, classes, log_dir):
@@ -97,7 +130,7 @@ def parse_args():
     parser.add_argument("--warmup_iters", type=int, default=1000)
     parser.add_argument("--dropout_rate", type=float, default=0.0)
     parser.add_argument("--sigma", type=float, default=3e-2)
-    parser.add_argument("--weight_decay", type=float, default=5e-4)
+    parser.add_argument("--weight_decay", type=float, default=4e-4)
     parser.add_argument("--buffer_size", type=int, default=10000)
     parser.add_argument("--reinit_freq", type=float, default=0.05)
     parser.add_argument("--sgld_lr", type=float, default=0.0)
