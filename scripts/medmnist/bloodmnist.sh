@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
+export CUDA_VISIBLE_DEVICES="3"
 
 dataset=bloodmnist
 
@@ -17,9 +17,9 @@ accelerate launch train_jempp.py \
     --n_steps 10 \
     --in_steps 5 \
     --query_size 250 \
-    --labels_per_class 50 \
     --dataset $dataset \
-    --experiment_type equal_jempp_sgd2 \
+    --experiment_type calico \
     --enable_tracking \
-    --multi_gpu \
     --calibrated \
+    # --multi_gpu \
+    

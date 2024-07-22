@@ -110,7 +110,7 @@ def sample_q(
     x_k = t.autograd.Variable(init_sample, requires_grad=True)
 
     if in_steps > 0:
-        Hamiltonian_func = Hamiltonian(accelerator.unwrap_model(f).f.layer_one)
+        Hamiltonian_func = Hamiltonian(accelerator.unwrap_model(f).f.layer_one) if accelerator else Hamiltonian(f.f.layer_one)
 
     if pyld_lr <= 0:
         in_steps = 0
@@ -253,6 +253,7 @@ def train_model(
                 for param_group in optim.param_groups:
                     param_group["lr"] = lr
 
+            x_p_d = x_p_d.to(device)
             x_lab, y_lab = dload_train_labeled.__next__()
             x_lab, y_lab = (x_lab.to(device), y_lab.to(device).squeeze().long())
 
@@ -556,7 +557,7 @@ def main(config):
     for i in range(n_iters):
         raw_f, replay_buffer = get_model_and_buffer(datamodule=datamodule, accelerator=accelerator, device=device, **config)
         replay_buffer = init_from_centers(device=device, datamodule=datamodule, **config)
-        optim = get_optimizer(raw_f, accelerator=accelerator, **config)
+        optim = get_optimizer(raw_f, accelerator=accelerator, device=device, **config)
         logger_kwargs, dirs = init_logger(experiment_name, config["experiment_type"], config["log_dir"], len(train_labeled_inds))
 
         if config["enable_tracking"]:
