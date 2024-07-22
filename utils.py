@@ -1,5 +1,6 @@
 import argparse
 import os
+import random
 import time
 from pathlib import Path
 from typing import Dict
@@ -23,6 +24,15 @@ class Hamiltonian(_Loss):
         y = self.layer(x)
         H = torch.sum(y * p)
         return H
+
+
+def initialize(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def load_config(config_path: Path) -> Dict:

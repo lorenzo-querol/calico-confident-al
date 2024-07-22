@@ -4,7 +4,7 @@ export CUDA_VISIBLE_DEVICES="3"
 
 dataset=bloodmnist
 
-accelerate launch train_jempp.py \
+python train_jempp.py \
     --model yopo \
     --lr 0.1 \
     --optimizer sgd \

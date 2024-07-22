@@ -20,8 +20,6 @@ import numpy as np
 import torch as t
 import torch.nn as nn
 import torchvision as tv
-from accelerate import Accelerator
-from accelerate.utils import set_seed
 from netcal.metrics import ECE
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.utils.data import DataLoader
@@ -30,7 +28,7 @@ from tqdm import tqdm
 import wandb
 from DataModule import DataModule
 from models.JEM import get_model_and_buffer, get_optimizer
-from utils import Hamiltonian, get_experiment_name, parse_args
+from utils import Hamiltonian, get_experiment_name, initialize, parse_args
 
 conditionals = []
 
@@ -101,16 +99,14 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
     return samples.to("cuda"), inds
 
 
-def sample_q(
-    f, datamodule, replay_buffer, batch_size, n_steps, in_steps, sgld_std, sgld_lr, pyld_lr, eps, y=None, save=True, accelerator=None, **config
-):
+def sample_q(f, datamodule, replay_buffer, batch_size, n_steps, in_steps, sgld_std, sgld_lr, pyld_lr, eps, y=None, save=True, **config):
     bs = batch_size
 
     init_sample, buffer_inds = sample_p_0(replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config)
     x_k = t.autograd.Variable(init_sample, requires_grad=True)
 
     if in_steps > 0:
-        Hamiltonian_func = Hamiltonian(accelerator.unwrap_model(f).f.layer_one) if accelerator else Hamiltonian(f.f.layer_one)
+        Hamiltonian_func = Hamiltonian(f.f.layer_one)
 
     if pyld_lr <= 0:
         in_steps = 0
@@ -121,7 +117,7 @@ def sample_q(
         eta = t.autograd.grad(e_x, [x_k], retain_graph=True)[0]
 
         if in_steps > 0:
-            p = 1.0 * accelerator.unwrap_model(f).f.layer_one_out.grad if accelerator else f.f.layer_one_out.grad
+            p = 1.0 * f.f.layer_one_out.grad
             p = p.detach()
 
         tmp_inp = x_k.data
@@ -207,13 +203,10 @@ def train_model(
     dload_valid: DataLoader,
     replay_buffer: t.Tensor,
     dirs: tuple[str, str, str],
-    accelerator: Accelerator = None,
     iter_num: int = 0,
     **config,
 ):
-    print_fn = accelerator.print if accelerator else print
-    log_fn = accelerator.log if accelerator else wandb.log
-    device = accelerator.device if accelerator else t.device("cuda")
+    device = t.device("cuda" if t.cuda.is_available() else "cpu")
     ckpt_dir, samples_dir, _ = dirs
 
     cur_iter = 0
@@ -227,7 +220,7 @@ def train_model(
                 new_lr = param_group["lr"] * config["decay_rate"]
                 param_group["lr"] = new_lr
 
-            print_fn(f"Decaying LR to {new_lr:.8f}.")
+            print(f"Decaying LR to {new_lr:.8f}.")
 
         epoch_loss = 0.0
         epoch_acc = 0.0
@@ -239,11 +232,7 @@ def train_model(
 
         """---TRAINING---"""
 
-        progress_bar = tqdm(
-            dload_train,
-            desc=(f"Epoch {epoch+1}/{config['n_epochs']}"),
-            disable=not accelerator.is_main_process if accelerator else False,
-        )
+        progress_bar = tqdm(dload_train, desc=(f"Epoch {epoch+1}/{config['n_epochs']}"))
 
         f.train()
         for i, (x_p_d, _) in enumerate(progress_bar):
@@ -261,39 +250,23 @@ def train_model(
 
             """Maximize log P(x)"""
             if config["p_x_weight"] > 0:
-                if accelerator is not None:
-                    with accelerator.no_sync(f):
-                        fp_all = f(x_p_d)
-                        fp = fp_all.mean()
+                fp_all = f(x_p_d)
+                fp = fp_all.mean()
 
-                        x_q = sample_q(f, datamodule, replay_buffer, accelerator=accelerator, **config)
-                        fq_all = f(x_q)
-                        fq = fq_all.mean()
+                x_q = sample_q(f, datamodule, replay_buffer, **config)
+                fq_all = f(x_q)
+                fq = fq_all.mean()
 
-                        loss_p_x = fq - fp
-                        L += config["p_x_weight"] * loss_p_x
+                loss_p_x = fq - fp
+                L += config["p_x_weight"] * loss_p_x
 
-                        if config["l2_weight"] > 0:
-                            loss_l2 = (fq**2 + fp**2).mean() * config["l2_weight"]
-                            L += loss_l2
-                else:
-                    fp_all = f(x_p_d)
-                    fp = fp_all.mean()
-
-                    x_q = sample_q(f, datamodule, replay_buffer, accelerator=accelerator, **config)
-                    fq_all = f(x_q)
-                    fq = fq_all.mean()
-
-                    loss_p_x = fq - fp
-                    L += config["p_x_weight"] * loss_p_x
-
-                    if config["l2_weight"] > 0:
-                        loss_l2 = (fq**2 + fp**2).mean() * config["l2_weight"]
-                        L += loss_l2
+                if config["l2_weight"] > 0:
+                    loss_l2 = (fq**2 + fp**2).mean() * config["l2_weight"]
+                    L += loss_l2
 
             """Maximize log P(y|x)"""
             if config["p_y_x_weight"] > 0:
-                logits = accelerator.unwrap_model(f).classify(x_lab) if accelerator else f.classify(x_lab)
+                logits = f.classify(x_lab)
                 loss_p_y_x = nn.functional.cross_entropy(logits, y_lab)
                 if logits.dim() > 1:
                     acc = (logits.max(1)[1] == y_lab).float().mean()
@@ -309,10 +282,7 @@ def train_model(
 
             """Take gradient step"""
             optim.zero_grad()
-            if accelerator:
-                accelerator.backward(L)
-            else:
-                L.backward()
+            L.backward()
             optim.step()
             cur_iter += 1
 
@@ -325,24 +295,14 @@ def train_model(
             inputs, labels = inputs.to(device), labels.to(device).squeeze().long()
 
             with t.no_grad():
-                logits = accelerator.unwrap_model(f).classify(inputs) if accelerator else f.classify(inputs)
+                logits = f.classify(inputs)
 
-            if accelerator:
-                losses, corrects, confs, targets = accelerator.gather_for_metrics(
-                    (
-                        t.nn.functional.cross_entropy(logits, labels, reduction="none"),
-                        (logits.max(1)[1] == labels).float(),
-                        t.nn.functional.softmax(logits, dim=1),
-                        labels,
-                    )
-                )
-            else:
-                losses, corrects, confs, targets = (
-                    t.nn.functional.cross_entropy(logits, labels, reduction="none"),
-                    (logits.max(1)[1] == labels).float(),
-                    t.nn.functional.softmax(logits, dim=1),
-                    labels,
-                )
+            losses, corrects, confs, targets = (
+                t.nn.functional.cross_entropy(logits, labels, reduction="none"),
+                (logits.max(1)[1] == labels).float(),
+                t.nn.functional.softmax(logits, dim=1),
+                labels,
+            )
 
             all_gts.extend(targets)
             all_confs.extend(confs)
@@ -360,62 +320,32 @@ def train_model(
         """Check if current valid loss is the best"""
         if val_loss < best_val_loss:
             best_val_loss, best_val_acc, best_val_ece = val_loss, val_acc, val_ece
-            print_fn(f"BEST val_loss: {best_val_loss:.4f}", f"val_acc: {best_val_acc:.4f}", f"val_ece: {best_val_ece:.4f}", sep="\t")
+            print(f"BEST val_loss: {best_val_loss:.4f}", f"val_acc: {best_val_acc:.4f}", f"val_ece: {best_val_ece:.4f}", sep="\t")
 
-            if accelerator:
-                if accelerator.is_main_process:
-                    if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
-                        os.remove(best_ckpt_path)
+            if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
+                os.remove(best_ckpt_path)
 
-                    best_ckpt_path = f"{ckpt_dir}/epoch={epoch + (config['n_epochs'] * iter_num)}-val_loss={val_loss:.4f}.ckpt"
-                    os.makedirs(ckpt_dir, exist_ok=True)
+            best_ckpt_path = f"{ckpt_dir}/epoch={epoch + (config['n_epochs'] * iter_num)}-val_loss={val_loss:.4f}.ckpt"
+            os.makedirs(ckpt_dir, exist_ok=True)
 
-                    ckpt_dict = {
-                        "model_state_dict": accelerator.unwrap_model(f).state_dict(),
-                        "optimizer_state_dict": optim.state_dict(),
-                        "replay_buffer": replay_buffer,
-                    }
-                    accelerator.save(ckpt_dict, best_ckpt_path)
-            else:
-                if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
-                    os.remove(best_ckpt_path)
-
-                best_ckpt_path = f"{ckpt_dir}/epoch={epoch + (config['n_epochs'] * iter_num)}-val_loss={val_loss:.4f}.ckpt"
-                os.makedirs(ckpt_dir, exist_ok=True)
-
-                ckpt_dict = {
-                    "model_state_dict": accelerator.unwrap_model(f).state_dict() if accelerator else f.state_dict(),
-                    "optimizer_state_dict": optim.state_dict(),
-                    "replay_buffer": replay_buffer,
-                }
-                t.save(ckpt_dict, best_ckpt_path)
+            ckpt_dict = {
+                "model_state_dict": f.state_dict(),
+                "optimizer_state_dict": optim.state_dict(),
+                "replay_buffer": replay_buffer,
+            }
+            t.save(ckpt_dict, best_ckpt_path)
 
         """---LOGGING AND CHECKPOINTING---"""
 
         if (epoch + (config["n_epochs"] * iter_num)) % config["sample_every_n_epochs"] == 0 and config["p_x_weight"] > 0:
-            if accelerator:
-                with accelerator.no_sync(f):
-                    x_q = sample_q(f, datamodule, replay_buffer, accelerator=accelerator, **config)
+            x_q = sample_q(f, datamodule, replay_buffer, **config)
 
-                image = tv.utils.make_grid(x_q, normalize=True, nrow=8, value_range=(-1, 1))
+            image = tv.utils.make_grid(x_q, normalize=True, nrow=8, value_range=(-1, 1))
 
-                if accelerator.is_main_process:
-                    if not os.path.exists(samples_dir):
-                        os.makedirs(samples_dir, exist_ok=True)
+            if not os.path.exists(samples_dir):
+                os.makedirs(samples_dir, exist_ok=True)
 
-                    tv.utils.save_image(
-                        image,
-                        f"{samples_dir}/x_q-epoch={epoch + (config['n_epochs'] * iter_num)}.png",
-                    )
-            else:
-                x_q = sample_q(f, datamodule, replay_buffer, accelerator=accelerator, **config)
-
-                image = tv.utils.make_grid(x_q, normalize=True, nrow=8, value_range=(-1, 1))
-
-                if not os.path.exists(samples_dir):
-                    os.makedirs(samples_dir, exist_ok=True)
-
-                tv.utils.save_image(image, f"{samples_dir}/x_q-epoch={epoch + (config['n_epochs'] * iter_num)}.png")
+            tv.utils.save_image(image, f"{samples_dir}/x_q-epoch={epoch + (config['n_epochs'] * iter_num)}.png")
 
         epoch_loss /= len(dload_train)
         epoch_acc /= len(dload_train)
@@ -423,7 +353,7 @@ def train_model(
         epoch_loss_p_y_x /= len(dload_train)
         epoch_loss_l2 /= len(dload_train)
 
-        print_fn(
+        print(
             f"loss: {epoch_loss:.4f}",
             f"acc: {epoch_acc:.4f}",
             f"loss_p_x: {epoch_loss_p_x:.4f}",
@@ -447,11 +377,11 @@ def train_model(
                 "val_acc": val_acc,
                 "val_ece": val_ece,
             }
-            log_fn(log_values)
+            wandb.log(log_values)
 
     """Log the final epoch"""
     if config["enable_tracking"]:
-        log_fn(
+        wandb.log(
             {
                 "num_labeled": len(datamodule.train_labeled_indices),
                 "loss": epoch_loss,
@@ -467,7 +397,7 @@ def train_model(
 
     """Log the best epoch"""
     if config["enable_tracking"]:
-        log_fn(
+        wandb.log(
             {
                 "num_labeled": len(datamodule.train_labeled_indices),
                 "best_val_loss": best_val_loss,
@@ -478,16 +408,12 @@ def train_model(
 
     """Save the last checkpoint"""
     ckpt_dict = {
-        "model_state_dict": accelerator.unwrap_model(f).state_dict() if accelerator else f.state_dict(),
+        "model_state_dict": f.state_dict(),
         "optimizer_state_dict": optim.state_dict(),
         "replay_buffer": replay_buffer,
     }
 
-    if accelerator:
-        if accelerator.is_main_process:
-            accelerator.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
-    else:
-        t.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
+    t.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
 
     return f
 
@@ -524,10 +450,8 @@ equal_dict = {
 
 
 def main(config):
-    accelerator = Accelerator(log_with="wandb" if config["enable_tracking"] else None) if config["multi_gpu"] else None
-    print_fn = accelerator.print if accelerator else print
-    device = accelerator.device if accelerator else t.device("cuda")
-    datamodule = DataModule(accelerator=accelerator, **config)
+    device = t.device("cuda" if t.cuda.is_available() else "cpu")
+    datamodule = DataModule(**config)
     datamodule.prepare_data()
 
     (
@@ -541,7 +465,6 @@ def main(config):
         sampling_method="random" if config["labels_per_class"] <= 0 else "equal",
         init_size=config["query_size"],
         labels_per_class=config["labels_per_class"],
-        accelerator=accelerator,
     )
 
     """For informative initialization"""
@@ -555,16 +478,13 @@ def main(config):
     labels_per_class = config["labels_per_class"]
 
     for i in range(n_iters):
-        raw_f, replay_buffer = get_model_and_buffer(datamodule=datamodule, accelerator=accelerator, device=device, **config)
+        raw_f, replay_buffer = get_model_and_buffer(datamodule, device=device, **config)
         replay_buffer = init_from_centers(device=device, datamodule=datamodule, **config)
-        optim = get_optimizer(raw_f, accelerator=accelerator, device=device, **config)
+        optim = get_optimizer(raw_f, device=device, **config)
         logger_kwargs, dirs = init_logger(experiment_name, config["experiment_type"], config["log_dir"], len(train_labeled_inds))
 
         if config["enable_tracking"]:
-            if accelerator:
-                accelerator.init_trackers(project_name="JEM", config=config, init_kwargs={"wandb": logger_kwargs})
-            else:
-                wandb.init(project="JEM", config=config, **logger_kwargs)
+            wandb.init(project="JEM", config=config, **logger_kwargs)
 
         """
             ---TRAINING---
@@ -573,7 +493,6 @@ def main(config):
         trained_f = train_model(
             f=raw_f,
             optim=optim,
-            accelerator=accelerator,
             datamodule=datamodule,
             dload_train=dload_train,
             dload_train_labeled=dload_train_labeled,
@@ -586,18 +505,17 @@ def main(config):
         )
 
         if len(train_labeled_inds) >= limit:
-            print_fn(f"Training complete with {len(train_labeled_inds)} labeled samples.")
+            print(f"Training complete with {len(train_labeled_inds)} labeled samples.")
             break
 
         # Least confident sampling
         if config["labels_per_class"] == 0:
-            print_fn(f"Querying {config['query_size']} samples using least confident sampling.")
+            print(f"Querying {config['query_size']} samples using least confident sampling.")
             inds_to_fix = datamodule.query_samples(
                 trained_f,
                 dload_train_unlabeled,
                 train_unlabeled_inds,
                 config["query_size"],
-                accelerator=accelerator,
             )
             (
                 dload_train,
@@ -611,12 +529,11 @@ def main(config):
                 train_unlabeled_inds,
                 inds_to_fix,
                 start_iter=False,
-                accelerator=accelerator,
             )
 
         # Equal labels sampling
         elif config["labels_per_class"] > 0:
-            print_fn(f"Querying {config['labels_per_class']} samples per class.")
+            print(f"Querying {config['labels_per_class']} samples per class.")
             labels_per_class += config["labels_per_class"]
             (
                 dload_train,
@@ -630,12 +547,11 @@ def main(config):
                 train_unlabeled_inds,
                 sampling_method="equal",
                 labels_per_class=labels_per_class,
-                accelerator=accelerator,
             )
 
         # Random sampling
         else:
-            print_fn(f"Querying {config['query_size']} samples randomly.")
+            print(f"Querying {config['query_size']} samples randomly.")
             init_size += config["query_size"]
             (
                 dload_train,
@@ -649,27 +565,18 @@ def main(config):
                 train_unlabeled_inds,
                 sampling_method="random",
                 init_size=init_size,
-                accelerator=accelerator,
             )
 
     if config["enable_tracking"]:
-        if accelerator:
-            accelerator.end_training()
-        else:
-            wandb.finish()
+        wandb.finish()
 
 
 if __name__ == "__main__":
-    t.backends.cudnn.enabled = True
-    t.backends.cudnn.deterministic = True
-
     config = vars(parse_args())
+    initialize(config["seed"])
 
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
-    config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
     config.update({"experiment_name": config["dataset"]})
-
-    set_seed(config["seed"])
 
     main(config)
