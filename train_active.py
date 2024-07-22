@@ -60,20 +60,18 @@ def init_random(datamodule: MedMNISTDataModule):
 def init_from_centers(datamodule, args, device):
     global conditionals
 
+    img_shape = datamodule.img_shape
+    n_classes = datamodule.n_classes
+
     centers = t.load(f"./weights/{args.dataset}_mean.pt")
     covs = t.load(f"./weights/{args.dataset}_cov.pt")
 
     buffer = []
     for i in range(datamodule.n_classes):
-        mean, cov = centers[i].to(device), covs[i].to(device)
-        cov += 1e-4 * t.eye(int(np.prod(datamodule.img_shape))).to(device)
-        dist = MultivariateNormal(mean, covariance_matrix=cov)
-
-        buffer.append(
-            dist.sample((datamodule.batch_size // datamodule.n_classes,))
-            .view((datamodule.batch_size // datamodule.n_classes,) + datamodule.img_shape)
-            .cpu()
-        )
+        mean = centers[i].to(device)
+        cov = covs[i].to(device)
+        dist = MultivariateNormal(mean, covariance_matrix=cov + 1e-4 * t.eye(int(np.prod(img_shape))).to(device))
+        buffer.append(dist.sample((args.batch_size // n_classes,)).view([args.batch_size // n_classes] + list(img_shape)).cpu())
         conditionals.append(dist)
 
     return t.clamp(t.cat(buffer), -1, 1)
@@ -165,7 +163,7 @@ def sample_q(f, datamodule, replay_buffer, args, device):
     return final_samples
 
 
-def fit(f: nn.Module, datamodule: MedMNISTDataModule, args: argparse.Namespace, writer: SummaryWriter, log_dir: str, al_iter: int):
+def fit(f: nn.Module, datamodule: MedMNISTDataModule, replay_buffer, args: argparse.Namespace, writer: SummaryWriter, log_dir: str, al_iter: int):
     """
     Fit Joint Energy-based Model (JEM) on the given dataset.
 
@@ -202,8 +200,6 @@ def fit(f: nn.Module, datamodule: MedMNISTDataModule, args: argparse.Namespace, 
     train_dataloader = datamodule.train_dataloader()
     labeled_dataloader = datamodule.labeled_dataloader()
     val_dataloader = datamodule.val_dataloader()
-
-    replay_buffer = init_from_centers(datamodule, args, device)
 
     curr_iter = 0
     for epoch in progress_bar:
@@ -352,6 +348,7 @@ if __name__ == "__main__":
     log_dir = f"./{args.log_dir}/{args.dataset}/{args.exp_name}"
     log_dir = create_log_dir(log_dir)
     writer = SummaryWriter(log_dir)
+    device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
     write_to_yaml(vars(args), f"{log_dir}/config.yaml")
 
@@ -369,7 +366,8 @@ if __name__ == "__main__":
         print(f"\nIteration {i+1}")
 
         f = get_model(datamodule, args)
-        fit(f, datamodule, args, writer, log_dir, i)
+        replay_buffer = init_from_centers(datamodule, args, device)
+        fit(f, datamodule, replay_buffer, args, writer, log_dir, i)
 
         if len(datamodule.labeled_indices) != LIMIT:
             indices_to_fix = datamodule.query(f, args.query_size)
