@@ -7,8 +7,6 @@ import numpy as np
 import torch as t
 import torch.nn as nn
 import torchvision.transforms as tr
-from accelerate import Accelerator
-from colorama import init
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
@@ -30,10 +28,8 @@ class DataModule:
         data_root: str,
         dataset: str,
         query_size: int,
-        accelerator: Accelerator = None,
         **config,
     ):
-        self.accelerator = accelerator
         self.sigma = sigma
         self.batch_size = batch_size
         self.labels_per_class = labels_per_class
@@ -66,23 +62,14 @@ class DataModule:
         return tr.Compose(final_transform)
 
     def prepare_data(self):
-        if self.accelerator is None:
-            if not os.path.exists(self.data_root):
-                os.makedirs(self.data_root)
+        if not os.path.exists(self.data_root):
+            os.makedirs(self.data_root)
 
-            self.download_dataset("train")
-            self.download_dataset("val")
-            self.download_dataset("test")
+        self.download_dataset("train")
+        self.download_dataset("val")
+        self.download_dataset("test")
 
-            return
-
-        with self.accelerator.main_process_first():
-            if not os.path.exists(self.data_root):
-                os.makedirs(self.data_root)
-
-            self.download_dataset("train")
-            self.download_dataset("val")
-            self.download_dataset("test")
+        return
 
     def download_dataset(self, split: str):
         if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
@@ -113,13 +100,7 @@ class DataModule:
     def _dataset_function(self, split: str, train: bool, augment: bool):
         transform = self.get_transforms(train=train, augment=augment)
 
-        if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
-            other_dataset = OtherDataset(self.dataset, root=self.data_root, split=split, transform=transform, download=False)
-            dataset = other_dataset.get_dataset()
-
-            return dataset
-
-        elif self.dataset in [
+        if self.dataset in [
             "bloodmnist",
             "organcmnist",
             "organsmnist",
@@ -140,11 +121,8 @@ class DataModule:
         sampling_method: str = None,
         init_size: int = None,
         start_iter: bool = True,
-        accelerator: Accelerator = None,
         labels_per_class: int = None,
     ):
-        print_fn = accelerator.print if accelerator else print
-
         self.train_labeled_indices = train_labeled_indices
         self.train_unlabeled_indices = train_unlabeled_indices
 
@@ -179,8 +157,8 @@ class DataModule:
             indices = np.argwhere(np.isin(self.train_unlabeled_indices, indices_to_fix))
             self.train_unlabeled_indices = np.delete(self.train_unlabeled_indices, indices)
 
-        print_fn(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
-        print_fn(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
+        print(f"Current Labeled Train Indices: {len(self.train_labeled_indices)}")
+        print(f"Current Unlabeled Train Indices: {len(self.train_unlabeled_indices)}")
 
         self.labeled = Subset(self._dataset_function("train", train=True, augment=True), indices=self.train_labeled_indices)
         self.unlabeled = Subset(self._dataset_function("train", train=False, augment=False), indices=self.train_unlabeled_indices)
@@ -190,14 +168,6 @@ class DataModule:
         self.dload_train_labeled = cycle(self.create_dataloader(self.labeled, train=True))
         self.dload_train_unlabeled = self.create_dataloader(self.unlabeled, shuffle=False) if len(self.train_unlabeled_indices) > 0 else None
         self.dload_valid = self.create_dataloader(self.valid, shuffle=False)
-
-        if accelerator:
-            (
-                self.dload_train,
-                self.dload_train_labeled,
-                self.dload_train_unlabeled,
-                self.dload_valid,
-            ) = accelerator.prepare(self.dload_train, self.dload_train_labeled, self.dload_train_unlabeled, self.dload_valid)
 
         return (
             self.dload_train,
@@ -230,24 +200,18 @@ class DataModule:
         dload_train_unlabeled: DataLoader,
         train_unlabeled_inds: list[int],
         query_size: int,
-        accelerator: Accelerator = None,
     ):
         confs, confs_to_fix = [], []
 
         f.eval()
-        progress_bar = tqdm(
-            dload_train_unlabeled,
-            desc="Predicting",
-            disable=not accelerator.is_main_process if accelerator else True,
-        )
-        device = accelerator.device if accelerator else t.device("cuda")
-        print_fn = accelerator.print if accelerator else print
+        progress_bar = tqdm(dload_train_unlabeled, desc="Predicting")
+        device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
         for _, (x_p_d, y_p_d) in enumerate(progress_bar):
             x_p_d, y_p_d = x_p_d.to(device), y_p_d.to(device).squeeze().long()
 
             with t.no_grad():
-                logits = accelerator.unwrap_model(f).classify(x_p_d) if accelerator else f.classify(x_p_d)
+                logits = f.classify(x_p_d)
 
             confs.extend(nn.functional.softmax(logits, dim=1).detach().cpu().numpy())
 
@@ -265,7 +229,7 @@ class DataModule:
         inds_to_fix = [ind for _, ind in confs_to_fix]
         inds_to_fix.sort()
 
-        print_fn(f"Length of inds to fix: {len(inds_to_fix)}")
+        print(f"Length of inds to fix: {len(inds_to_fix)}")
 
         return inds_to_fix
 
