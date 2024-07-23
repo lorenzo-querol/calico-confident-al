@@ -82,6 +82,27 @@ def eval_classification(f, dload, set_name, epoch, args=None, print=None):
     return correct, loss
 
 
+def write_to_yaml(data, path):
+    with open(path, "w") as f:
+        yaml.dump(data, f)
+
+
+def create_log_dir(log_dir):
+    counter = 0
+
+    if os.path.exists(log_dir):
+        counter += 1
+
+        while os.path.exists(f"{log_dir}-{counter}"):
+            counter += 1
+
+        log_dir = f"{log_dir}-{counter}"
+
+    os.makedirs(log_dir, exist_ok=True)
+
+    return log_dir
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
 
@@ -91,9 +112,9 @@ def parse_args():
     parser.add_argument("--optimizer", type=str)
     parser.add_argument("--norm", type=str, choices=["none", "batch"])
     parser.add_argument("--decay_epochs", nargs="+", type=int)
-    parser.add_argument("--p_x_weight", type=float)
-    parser.add_argument("--p_y_x_weight", type=float)
-    parser.add_argument("--l2_weight", type=float)
+    parser.add_argument("--px", type=float)
+    parser.add_argument("--pyx", type=float)
+    parser.add_argument("--l2", type=float)
     parser.add_argument("--n_steps", type=int)
     parser.add_argument("--in_steps", type=int)
     parser.add_argument("--experiment_type", type=str)

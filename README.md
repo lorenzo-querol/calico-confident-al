@@ -20,7 +20,7 @@ To train a model on CIFAR10 as in the paper, please refer to scripts/cifar10.sh
 ```markdown
 python train_jempp.py --dataset=cifar10 \
  --lr=.1 --optimizer=sgd \
- --p_x_weight=1.0 --p_y_given_x_weight=1.0 --p_x_y_weight=0.0 \
+ --px=1.0 --p_y_given_x_weight=1.0 --p_x_y_weight=0.0 \
  --sigma=.03 --width=10 --depth=28 \
  --plot_uncond --warmup_iters=1000 \
  --log_arg=JEMPP-n_steps-in_steps-pyld_lr \

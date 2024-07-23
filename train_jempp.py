@@ -249,7 +249,7 @@ def train_model(
             L = 0.0
 
             """Maximize log P(x)"""
-            if config["p_x_weight"] > 0:
+            if config["px"] > 0:
                 fp_all = f(x_p_d)
                 fp = fp_all.mean()
 
@@ -258,26 +258,26 @@ def train_model(
                 fq = fq_all.mean()
 
                 loss_p_x = fq - fp
-                L += config["p_x_weight"] * loss_p_x
+                L += config["px"] * loss_p_x
 
-                if config["l2_weight"] > 0:
-                    loss_l2 = (fq**2 + fp**2).mean() * config["l2_weight"]
+                if config["l2"] > 0:
+                    loss_l2 = (fq**2 + fp**2).mean() * config["l2"]
                     L += loss_l2
 
             """Maximize log P(y|x)"""
-            if config["p_y_x_weight"] > 0:
+            if config["pyx"] > 0:
                 logits = f.classify(x_lab)
                 loss_p_y_x = nn.functional.cross_entropy(logits, y_lab)
                 if logits.dim() > 1:
                     acc = (logits.max(1)[1] == y_lab).float().mean()
                 else:
                     acc = (logits[0].argmax() == y_lab.item()).float()
-                L += config["p_y_x_weight"] * loss_p_y_x
+                L += config["pyx"] * loss_p_y_x
 
             epoch_loss += L.item()
             epoch_acc += acc.item()
-            epoch_loss_p_x += loss_p_x.item() if config["p_x_weight"] > 0 else 0.0
-            epoch_loss_l2 += loss_l2.item() if config["l2_weight"] > 0 else 0.0
+            epoch_loss_p_x += loss_p_x.item() if config["px"] > 0 else 0.0
+            epoch_loss_l2 += loss_l2.item() if config["l2"] > 0 else 0.0
             epoch_loss_p_y_x += loss_p_y_x.item()
 
             """Take gradient step"""
@@ -337,7 +337,7 @@ def train_model(
 
         """---LOGGING AND CHECKPOINTING---"""
 
-        if (epoch + (config["n_epochs"] * iter_num)) % config["sample_every_n_epochs"] == 0 and config["p_x_weight"] > 0:
+        if (epoch + (config["n_epochs"] * iter_num)) % config["sample_every_n_epochs"] == 0 and config["px"] > 0:
             x_q = sample_q(f, datamodule, replay_buffer, **config)
 
             image = tv.utils.make_grid(x_q, normalize=True, nrow=8, value_range=(-1, 1))
@@ -462,7 +462,7 @@ def main(config):
         train_labeled_inds,
         train_unlabeled_inds,
     ) = datamodule.get_data(
-        sampling_method="random" if config["labels_per_class"] <= 0 else "equal",
+        sample_method="random" if config["labels_per_class"] <= 0 else "equal",
         init_size=config["query_size"],
         labels_per_class=config["labels_per_class"],
     )
@@ -545,7 +545,7 @@ def main(config):
             ) = datamodule.get_data(
                 train_labeled_inds,
                 train_unlabeled_inds,
-                sampling_method="equal",
+                sample_method="equal",
                 labels_per_class=labels_per_class,
             )
 
@@ -563,7 +563,7 @@ def main(config):
             ) = datamodule.get_data(
                 train_labeled_inds,
                 train_unlabeled_inds,
-                sampling_method="random",
+                sample_method="random",
                 init_size=init_size,
             )
 
@@ -576,7 +576,7 @@ if __name__ == "__main__":
     initialize(config["seed"])
 
     """Scale batch size by number of GPUs for reproducibility"""
-    config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
+    config.update({"px": 1.0 if config["calibrated"] else 0.0})
     config.update({"experiment_name": config["dataset"]})
 
     main(config)

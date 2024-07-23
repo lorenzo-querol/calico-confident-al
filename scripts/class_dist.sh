@@ -15,9 +15,9 @@ python class_dist.py \
     --norm batch \
     --n_epochs $N_EPOCHS \
     --decay_epochs 50 100 125 \
-    --p_x_weight 1.0 \
-    --p_y_x_weight 1.0 \
-    --l2_weight 0.0 \
+    --px 1.0 \
+    --pyx 1.0 \
+    --l2 0.0 \
     --n_steps 10 \
     --in_steps 5 \
     --labels_per_class 0 \

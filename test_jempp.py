@@ -146,7 +146,7 @@ def main(config):
         train_labeled_inds,
         train_unlabeled_inds,
     ) = datamodule.get_data(
-        sampling_method="random" if config["labels_per_class"] <= 0 else "equal",
+        sample_method="random" if config["labels_per_class"] <= 0 else "equal",
         init_size=config["query_size"],
         labels_per_class=config["labels_per_class"],
     )
@@ -209,7 +209,7 @@ def main(config):
             ) = datamodule.get_data(
                 train_labeled_inds,
                 train_unlabeled_inds,
-                sampling_method="equal",
+                sample_method="equal",
                 labels_per_class=labels_per_class,
             )
 
@@ -220,6 +220,6 @@ if __name__ == "__main__":
 
     """Scale batch size by number of GPUs for reproducibility"""
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
-    config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
+    config.update({"px": 1.0 if config["calibrated"] else 0.0})
 
     main(config)

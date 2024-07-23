@@ -59,7 +59,7 @@ def main(config):
         dload_valid,
         train_labeled_inds,
         train_unlabeled_inds,
-    ) = datamodule.get_data(sampling_method="random", init_size=config["query_size"], accelerator=accelerator)
+    ) = datamodule.get_data(sample_method="random", init_size=config["query_size"], accelerator=accelerator)
 
     class_dist = datamodule.get_class_distribution()
     print(class_dist)
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     config = vars(parse_args())
 
     """Scale batch size by number of GPUs for reproducibility"""
-    config.update({"p_x_weight": 1.0 if config["calibrated"] else 0.0})
+    config.update({"px": 1.0 if config["calibrated"] else 0.0})
     config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
     config.update({"experiment_name": f'{config["dataset"]}_epoch_{config["n_epochs"]}_{config["optimizer"]}'})
 
