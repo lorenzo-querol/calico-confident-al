@@ -211,7 +211,7 @@ def train_model(
 
     cur_iter = 0
     new_lr = config["lr"]
-    best_val_loss, best_val_acc, best_val_ece = np.inf, 0.0, 0.0
+    best_val_loss, best_val_acc, best_val_ece = np.inf, 0.0, np.inf
     best_ckpt_path = None
 
     for epoch in range(config["n_epochs"]):
