@@ -55,7 +55,7 @@ def init_random(datamodule, bs):
 def init_from_centers(device, datamodule: DataModule, buffer_size: int, load_path: str = None, **config):
     global conditionals
 
-    if load_path is not None:
+    if load_path:
         return t.load(load_path)["replay_buffer"]
 
     dataset = datamodule.dataset
