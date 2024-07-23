@@ -1,6 +1,5 @@
 import os
 from collections import defaultdict
-from math import e
 
 import medmnist
 import numpy as np
@@ -9,8 +8,6 @@ import torch.nn as nn
 import torchvision.transforms as tr
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
-
-from OtherDataset import OtherDataset
 
 
 def cycle(loader):
@@ -28,6 +25,7 @@ class DataModule:
         data_root: str,
         dataset: str,
         query_size: int,
+        seed: int,
         **config,
     ):
         self.sigma = sigma
@@ -36,6 +34,8 @@ class DataModule:
         self.data_root = data_root
         self.dataset = dataset
         self.query_size = query_size
+        self.seed = seed
+        self._SUPPORTED_DATASETS = ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]
 
     def get_transforms(self, train: bool, augment: bool):
         final_transform = []
@@ -50,9 +50,6 @@ class DataModule:
                 tr.RandomCrop(self.img_shape[1]),
                 tr.RandomHorizontalFlip(),
             ]
-
-            if self.dataset == "svhn":
-                final_transform = final_transform[:-1]
 
         final_transform.extend(common_transform)
 
@@ -72,7 +69,7 @@ class DataModule:
         return
 
     def download_dataset(self, split: str):
-        if self.dataset in ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
+        if self.dataset in self._SUPPORTED_DATASETS:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]
@@ -88,13 +85,7 @@ class DataModule:
     def _dataset_function(self, split: str, train: bool, augment: bool):
         transform = self.get_transforms(train=train, augment=augment)
 
-        if self.dataset in [
-            "bloodmnist",
-            "organcmnist",
-            "organsmnist",
-            "dermamnist",
-            "pneumoniamnist",
-        ]:
+        if self.dataset in self._SUPPORTED_DATASETS:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             dataset = DataClass(root=self.data_root, split=split, transform=transform, download=False)
@@ -117,27 +108,23 @@ class DataModule:
         self.full_train = self._dataset_function("train", train=True, augment=False)
         self.all_train_indices = list(range(len(self.full_train)))
 
-        """Semi-Supervised Learning"""
         train_indices = np.array(self.all_train_indices)
         train_labels = np.array([np.squeeze(self.full_train[ind][1]) for ind in train_indices])
 
         if start_iter:
             if sample_method == "equal":
-                """Equal number of labels per class"""
                 assert labels_per_class is not None, "labels_per_class must be specified for equal sampling"
 
                 self.train_labeled_indices = []
                 self.train_unlabeled_indices = []
-
                 for i in range(self.n_classes):
                     self.train_labeled_indices.extend(train_indices[train_labels == i][:labels_per_class])
                     self.train_unlabeled_indices.extend(train_indices[train_labels == i][labels_per_class:])
             elif sample_method == "random":
-                """Random sampling"""
+                np.random.seed(self.seed)
                 self.train_labeled_indices = np.random.choice(train_indices, init_size, replace=False)
                 self.train_unlabeled_indices = np.setdiff1d(train_indices, self.train_labeled_indices)
             else:
-                """Use all training data"""
                 self.train_labeled_indices = train_indices
                 self.train_unlabeled_indices = []
         else:
@@ -171,7 +158,7 @@ class DataModule:
             dataset,
             batch_size=self.batch_size if train else 250,
             shuffle=shuffle,
-            num_workers=0,
+            num_workers=4,
             drop_last=drop_last,
             pin_memory=True,
         )

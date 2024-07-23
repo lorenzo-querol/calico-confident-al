@@ -31,6 +31,7 @@ def initialize(seed: int):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.enabled = True
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -142,8 +143,8 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--data_root", type=str, default="data")
     parser.add_argument("--labels_per_class", type=int, default=0)
-    parser.add_argument("--log_dir", type=str, default="./runs")
-    parser.add_argument("--experiment_name", type=str, default=None)
+    parser.add_argument("--log_dir", type=str, default="./logs")
+    parser.add_argument("--exp_name", type=str, default=None)
     parser.add_argument("--ckpt_every_n_epochs", type=int, default=None)
     parser.add_argument("--sample_every_n_epochs", type=int, default=10)
     parser.add_argument("--enable_tracking", action="store_true")

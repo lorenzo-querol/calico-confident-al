@@ -18,7 +18,7 @@ python train_jempp.py \
     --in_steps 5 \
     --query_size 250 \
     --dataset $dataset \
-    --experiment_type calico \
+    --exp_name calico \
     --enable_tracking \
     --calibrated \
     # --multi_gpu \

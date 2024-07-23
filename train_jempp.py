@@ -14,12 +14,10 @@
 # limitations under the License.
 
 import os
-from datetime import timedelta
 
 import numpy as np
 import torch as t
 import torch.nn as nn
-import torchvision as tv
 from netcal.metrics import ECE
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.utils.data import DataLoader
@@ -28,7 +26,7 @@ from tqdm import tqdm
 import wandb
 from DataModule import DataModule
 from models.JEM import get_model_and_buffer, get_optimizer
-from utils import Hamiltonian, get_experiment_name, initialize, parse_args
+from utils import Hamiltonian, create_log_dir, initialize, parse_args, plot
 
 conditionals = []
 
@@ -190,7 +188,7 @@ def category_mean(dload_train, datamodule):
         t.save(covs, f"weights/{dataset}_cov.pt")
 
 
-def train_model(
+def fit(
     f: nn.Module,
     optim: t.optim.Optimizer,
     datamodule: DataModule,
@@ -198,12 +196,18 @@ def train_model(
     dload_train_labeled: DataLoader,
     dload_valid: DataLoader,
     replay_buffer: t.Tensor,
-    dirs: tuple[str, str, str],
-    iter_num: int = 0,
+    log_dir: str,
+    device: str,
+    al_iter: int = 0,
     **config,
 ):
-    device = t.device("cuda" if t.cuda.is_available() else "cpu")
-    ckpt_dir, samples_dir, _ = dirs
+    samples_dir = f"{log_dir}/samples"
+    ckpt_dir = f"{log_dir}/checkpoints"
+    test_dir = f"{log_dir}/test"
+
+    for dir in [ckpt_dir, test_dir, samples_dir]:
+        if not os.path.exists(dir):
+            os.makedirs(dir, exist_ok=True)
 
     cur_iter = 0
     new_lr = config["lr"]
@@ -220,18 +224,15 @@ def train_model(
 
         epoch_loss = 0.0
         epoch_acc = 0.0
-        epoch_loss_p_x = 0.0
-        epoch_loss_p_y_x = 0.0
-        epoch_loss_l2 = 0.0
-        loss_p_x = 0.0
-        loss_l2 = 0.0
+        epoch_l_px = 0.0
+        epoch_l_pyx = 0.0
+        epoch_l_l2 = 0.0
+        l_px = 0.0
+        l_l2 = 0.0
 
-        """---TRAINING---"""
-
-        progress_bar = tqdm(dload_train, desc=(f"Epoch {epoch+1}/{config['n_epochs']}"))
-
+        # Training
         f.train()
-        for i, (x_p_d, _) in enumerate(progress_bar):
+        for i, (x_p_d, _) in enumerate(tqdm(dload_train, desc=(f"Epoch {epoch+1}/{config['n_epochs']}"))):
             """Warmup Learning Rate"""
             if cur_iter <= config["warmup_iters"]:
                 lr = config["lr"] * cur_iter / float(config["warmup_iters"])
@@ -253,28 +254,25 @@ def train_model(
                 fq_all = f(x_q)
                 fq = fq_all.mean()
 
-                loss_p_x = fq - fp
-                L += config["px"] * loss_p_x
+                l_px = fq - fp
+                L += config["px"] * l_px
 
                 if config["l2"] > 0:
-                    loss_l2 = (fq**2 + fp**2).mean() * config["l2"]
-                    L += loss_l2
+                    l_l2 = (fq**2 + fp**2).mean() * config["l2"]
+                    L += l_l2
 
             """Maximize log P(y|x)"""
             if config["pyx"] > 0:
                 logits = f.classify(x_lab)
-                loss_p_y_x = nn.functional.cross_entropy(logits, y_lab)
-                if logits.dim() > 1:
-                    acc = (logits.max(1)[1] == y_lab).float().mean()
-                else:
-                    acc = (logits[0].argmax() == y_lab.item()).float()
-                L += config["pyx"] * loss_p_y_x
+                l_pyx = nn.functional.cross_entropy(logits, y_lab)
+                acc = (logits.max(1)[1] == y_lab).float().mean()
+                L += config["pyx"] * l_pyx
 
             epoch_loss += L.item()
             epoch_acc += acc.item()
-            epoch_loss_p_x += loss_p_x.item() if config["px"] > 0 else 0.0
-            epoch_loss_l2 += loss_l2.item() if config["l2"] > 0 else 0.0
-            epoch_loss_p_y_x += loss_p_y_x.item()
+            epoch_l_px += l_px.item() if config["px"] > 0 else 0.0
+            epoch_l_l2 += l_l2.item() if config["l2"] > 0 else 0.0
+            epoch_l_pyx += l_pyx.item()
 
             """Take gradient step"""
             optim.zero_grad()
@@ -282,8 +280,7 @@ def train_model(
             optim.step()
             cur_iter += 1
 
-        """---VALIDATION---"""
-
+        # Validation
         f.eval()
         all_corrects, all_losses, all_confs, all_gts = [], [], [], []
         val_loss, val_acc = np.inf, 0.0
@@ -313,48 +310,37 @@ def train_model(
         val_loss = np.mean(all_losses)
         val_acc = np.mean(all_corrects)
 
-        """Check if current valid loss is the best"""
         if val_loss < best_val_loss:
             best_val_loss, best_val_acc, best_val_ece = val_loss, val_acc, val_ece
-            print(f"BEST val_loss: {best_val_loss:.4f}", f"val_acc: {best_val_acc:.4f}", f"val_ece: {best_val_ece:.4f}", sep="\t")
 
             if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
                 os.remove(best_ckpt_path)
-
-            best_ckpt_path = f"{ckpt_dir}/epoch={epoch + (config['n_epochs'] * iter_num)}-val_loss={val_loss:.4f}.ckpt"
-            os.makedirs(ckpt_dir, exist_ok=True)
 
             ckpt_dict = {
                 "model_state_dict": f.state_dict(),
                 "optimizer_state_dict": optim.state_dict(),
                 "replay_buffer": replay_buffer,
             }
-            t.save(ckpt_dict, best_ckpt_path)
+            t.save(ckpt_dict, f"{ckpt_dir}/al_iter={al_iter}-epoch={epoch}-val_loss_{val_loss:.4f}.ckpt")
 
-        """---LOGGING AND CHECKPOINTING---"""
+        # Logging
 
-        if (epoch + (config["n_epochs"] * iter_num)) % config["sample_every_n_epochs"] == 0 and config["px"] > 0:
+        if (epoch + (config["n_epochs"] * al_iter)) % config["sample_every_n_epochs"] == 0 and config["px"] > 0:
             x_q = sample_q(f, datamodule, replay_buffer, **config)
-
-            image = tv.utils.make_grid(x_q, normalize=True, nrow=8, value_range=(-1, 1))
-
-            if not os.path.exists(samples_dir):
-                os.makedirs(samples_dir, exist_ok=True)
-
-            tv.utils.save_image(image, f"{samples_dir}/x_q-epoch={epoch + (config['n_epochs'] * iter_num)}.png")
+            plot(f"{samples_dir}/x_q-al_iter={al_iter}-epoch={epoch}.png", x_q)
 
         epoch_loss /= len(dload_train)
         epoch_acc /= len(dload_train)
-        epoch_loss_p_x /= len(dload_train)
-        epoch_loss_p_y_x /= len(dload_train)
-        epoch_loss_l2 /= len(dload_train)
+        epoch_l_px /= len(dload_train)
+        epoch_l_pyx /= len(dload_train)
+        epoch_l_l2 /= len(dload_train)
 
         print(
             f"loss: {epoch_loss:.4f}",
             f"acc: {epoch_acc:.4f}",
-            f"loss_p_x: {epoch_loss_p_x:.4f}",
-            f"loss_l2: {epoch_loss_l2:.4f}",
-            f"loss_p_y_x: {epoch_loss_p_y_x:.4f}",
+            f"l_px: {epoch_l_px:.4f}",
+            f"l_pyx: {epoch_l_pyx:.4f}",
+            f"l_l2: {epoch_l_l2:.4f}",
             f"val_loss: {val_loss:.4f}",
             f"val_acc: {val_acc:.4f}",
             f"val_ece: {val_ece:.4f}",
@@ -363,11 +349,11 @@ def train_model(
 
         if config["enable_tracking"]:
             log_values = {
-                "epoch": epoch + (config["n_epochs"] * iter_num) + 1,
+                "epoch": epoch + (config["n_epochs"] * al_iter) + 1,
                 "loss": epoch_loss,
-                "loss_p_x": epoch_loss_p_x,
-                "loss_l2": epoch_loss_l2,
-                "loss_p_y_x": epoch_loss_p_y_x,
+                "l_px": epoch_l_px,
+                "l_pyx": epoch_l_pyx,
+                "l_l2": epoch_l_l2,
                 "acc": epoch_acc,
                 "val_loss": val_loss,
                 "val_acc": val_acc,
@@ -381,9 +367,9 @@ def train_model(
             {
                 "num_labeled": len(datamodule.train_labeled_indices),
                 "loss": epoch_loss,
-                "loss_p_x": epoch_loss_p_x,
-                "loss_l2": epoch_loss_l2,
-                "loss_p_y_x": epoch_loss_p_y_x,
+                "l_px": epoch_l_px,
+                "l_pyx": epoch_l_pyx,
+                "l_l2": epoch_l_l2,
                 "acc": epoch_acc,
                 "val_loss": val_loss,
                 "val_acc": val_acc,
@@ -409,27 +395,12 @@ def train_model(
         "replay_buffer": replay_buffer,
     }
 
-    t.save(ckpt_dict, f"{ckpt_dir}/last.ckpt")
+    t.save(ckpt_dict, f"{ckpt_dir}/al_iter={al_iter}-epoch={epoch}-last.ckpt")
 
     return f
 
 
-def init_logger(experiment_name: str, experiment_type: str, log_dir: str, num_labeled: int = None):
-    dir_name = f"{experiment_type}_{num_labeled}"
-    run_name = experiment_type
-
-    logger_kwargs = {"group": experiment_name, "name": run_name}
-    ckpt_dir = os.path.join(log_dir, experiment_name, "checkpoints", dir_name)
-    samples_dir = os.path.join(log_dir, experiment_name, "samples", dir_name)
-    test_dir = os.path.join(log_dir, experiment_name, "test", dir_name)
-
-    return logger_kwargs, (ckpt_dir, samples_dir, test_dir)
-
-
 limit_dict = {
-    "cifar10": 40000,
-    "cifar100": 40000,
-    "svhn": 40000,
     "bloodmnist": 4000,
     "dermamnist": 4000,
     "pneumoniamnist": 4000,
@@ -446,6 +417,8 @@ equal_dict = {
 
 
 def main(config):
+    initialize(config["seed"])
+
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
     datamodule = DataModule(**config)
     datamodule.prepare_data()
@@ -463,30 +436,28 @@ def main(config):
         labels_per_class=config["labels_per_class"],
     )
 
-    """For informative initialization"""
+    # Informative initialization
     if not os.path.isfile(f"weights/{datamodule.dataset}_cov.pt"):
         category_mean(dload_train=dload_train, datamodule=datamodule)
 
     n_iters = len(datamodule.full_train) // config["query_size"]
     limit = limit_dict[config["dataset"]] if config["labels_per_class"] <= 0 else equal_dict[config["dataset"]]
-    experiment_name = get_experiment_name(**config)
     init_size = config["query_size"]
     labels_per_class = config["labels_per_class"]
+
+    log_dir = f"./{config['log_dir']}/{config['dataset']}/{config['exp_name']}"
+    log_dir = create_log_dir(log_dir)
+    config.update({"log_dir": log_dir})
 
     for i in range(n_iters):
         raw_f, replay_buffer = get_model_and_buffer(datamodule, device=device, **config)
         replay_buffer = init_from_centers(device=device, datamodule=datamodule, **config)
         optim = get_optimizer(raw_f, device=device, **config)
-        logger_kwargs, dirs = init_logger(experiment_name, config["experiment_type"], config["log_dir"], len(train_labeled_inds))
 
         if config["enable_tracking"]:
-            wandb.init(project="JEM", config=config, **logger_kwargs)
+            wandb.init(project="CALICO", config=config, group=config["dataset"], name=config["exp_name"])
 
-        """
-            ---TRAINING---
-            - Train the model.
-        """
-        trained_f = train_model(
+        trained_f = fit(
             f=raw_f,
             optim=optim,
             datamodule=datamodule,
@@ -495,8 +466,8 @@ def main(config):
             dload_valid=dload_valid,
             train_labeled_inds=train_labeled_inds,
             replay_buffer=replay_buffer,
-            dirs=dirs,
-            iter_num=i,
+            device=device,
+            al_iter=i,
             **config,
         )
 
@@ -569,10 +540,4 @@ def main(config):
 
 if __name__ == "__main__":
     config = vars(parse_args())
-    initialize(config["seed"])
-
-    """Scale batch size by number of GPUs for reproducibility"""
-    config.update({"px": 1.0 if config["calibrated"] else 0.0})
-    config.update({"experiment_name": config["dataset"]})
-
     main(config)
