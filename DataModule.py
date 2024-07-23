@@ -72,19 +72,7 @@ class DataModule:
         return
 
     def download_dataset(self, split: str):
-        if self.dataset in ["mnist", "cifar10", "cifar100", "svhn"]:
-            other_dataset = OtherDataset(
-                self.dataset,
-                root=self.data_root,
-                split=split,
-                transform=None,
-                download=True,
-            )
-            self.img_shape = (1, 28, 28) if self.dataset == "mnist" else (3, 32, 32)
-            self.n_classes = 100 if self.dataset == "cifar100" else 10
-            self.classnames = other_dataset.classes
-
-        elif self.dataset in ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
+        if self.dataset in ["bloodmnist", "organcmnist", "organsmnist", "dermamnist", "pneumoniamnist"]:
             info = medmnist.INFO[self.dataset]
             DataClass = getattr(medmnist, info["python_class"])
             classnames = info["label"]
@@ -95,7 +83,7 @@ class DataModule:
             self.n_classes = len(classnames)
 
         else:
-            raise ValueError(f"Dataset {self.dataset} not supported.")
+            raise ValueError(f"Dataset {self.dataset} not supported")
 
     def _dataset_function(self, split: str, train: bool, augment: bool):
         transform = self.get_transforms(train=train, augment=augment)

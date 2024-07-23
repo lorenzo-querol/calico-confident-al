@@ -169,11 +169,7 @@ def category_mean(dload_train, datamodule):
     im_test, targ_test = t.cat(im_test), t.cat(targ_test)
 
     for i in range(n_classes):
-        if datamodule.dataset in ["cifar10", "cifar100", "svhn", "mnist"]:
-            mask = targ_test == i
-        else:
-            mask = (targ_test == i).squeeze(1)
-
+        mask = (targ_test == i).squeeze(1)
         imc = im_test[mask]
         imc = imc.view(len(imc), -1)
         mean = imc.mean(dim=0)
