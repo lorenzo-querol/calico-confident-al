@@ -6,80 +6,16 @@ import numpy as np
 import pandas as pd
 import torch as t
 import torch.nn as nn
-from accelerate.utils import set_seed
 from netcal.metrics import ECE
 from netcal.presentation import ReliabilityDiagram
 from tqdm import tqdm
 
 from DataModule import DataModule
 from models.JEM import F
-from utils import get_directories, parse_args
-
-
-def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled: int):
-    dload_test = datamodule.get_test_data()
-
-    all_corrects, all_losses = [], []
-    all_confs, all_gts = [], []
-    test_loss, test_acc = np.inf, 0.0
-
-    correct_per_class = {label: 0 for label in datamodule.classnames}
-    total_per_class = {label: 0 for label in datamodule.classnames}
-
-    f.eval()
-    progress_bar = tqdm(dload_test, desc="Testing")
-    for i, (inputs, labels) in enumerate(progress_bar):
-        inputs, labels = inputs.to("cuda"), labels.to("cuda").squeeze().long()
-
-        with t.no_grad():
-            logits = f.classify(inputs)
-
-        loss, correct, confs, targets = (
-            t.nn.functional.cross_entropy(logits, labels, reduction="none"),
-            (logits.max(1)[1] == labels).float(),
-            t.nn.functional.softmax(logits, dim=1),
-            labels,
-        )
-
-        all_gts.extend(targets)
-        all_confs.extend(confs)
-        all_losses.extend(loss)
-        all_corrects.extend(correct)
-
-        for i, class_name in enumerate(datamodule.classnames):
-            correct_per_class[class_name] += t.sum((correct == 1) & (targets == i)).item()
-            total_per_class[class_name] += t.sum(targets == i).item()
-
-    test_loss = np.mean([loss.item() for loss in all_losses])
-    test_acc = np.mean([correct.item() for correct in all_corrects])
-
-    accuracy_per_class = {
-        label: correct / total if total > 0 else 0
-        for label, (correct, total) in zip(datamodule.classnames, zip(correct_per_class.values(), total_per_class.values()))
-    }
-
-    all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
-    all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
-
-    bins = 10
-    ece, diagram = ECE(bins), ReliabilityDiagram(bins)
-    calibration_score = ece.measure(all_confs, all_gts)
-    pl = diagram.plot(all_confs, all_gts, tikz=True)
-
-    test_metrics = {"test_loss": test_loss, "test_acc": test_acc, "test_ece": calibration_score}
-    test_metrics = pd.DataFrame(test_metrics, index=[0])
-
-    accuracy_per_class = pd.DataFrame(accuracy_per_class, index=[0])
-
-    class_distribution = datamodule.get_class_distribution()
-    class_distribution = pd.DataFrame([dict(class_distribution)], index=[0])
-
-    full_distribution = datamodule.get_full_distribution()
-    full_distribution = pd.DataFrame([dict(full_distribution)], index=[0])
-
-    if not os.path.exists(test_dir):
-        os.makedirs(test_dir, exist_ok=True)
-
+from utils import initialize, parse_args 
+from torch.utils.data import DataLoader
+ 
+def save_rel_diagram(pl, test_dir):
     if isinstance(pl, str):
         with open(f"{test_dir}/reliability_diagram.tikz", "w") as f:
             print(f'Writing to file "{test_dir}/reliability_diagram.tikz".')
@@ -88,138 +24,90 @@ def test_model(f: nn.Module, datamodule: DataModule, test_dir: str, num_labeled:
         pl.savefig(f"{test_dir}/reliability_diagram.png")
         plt.close(pl)
 
-    test_metrics.to_csv(f"{test_dir}/test_metrics.csv", index=False)
-    accuracy_per_class.to_csv(f"{test_dir}/accuracy_per_class.csv", index=False)
-    class_distribution.to_csv(f"{test_dir}/class_distribution.csv", index=False)
-    full_distribution.to_csv(f"{test_dir}/full_distribution.csv", index=False)
-
-    print(f"Test Loss: {test_loss} | Test Accuracy: {test_acc} | ECE: {calibration_score}")
-
-
-def get_ckpts(ckpt_dir: str, experiment_type: str):
+def get_ckpt_dicts(ckpt_dir:str):
     ckpts = list(Path(ckpt_dir).rglob("*"))
-    ckpts = [ckpt for ckpt in ckpts if not ckpt.is_dir()]
-    ckpts = [ckpt for ckpt in ckpts if "last" in ckpt.name]
-    ckpts = [str(ckpt) for ckpt in ckpts]
-    ckpts = [ckpt for ckpt in ckpts if experiment_type in ckpt]
+    ckpts = [c for c in ckpts if "last" in c.name]
 
     ckpt_dicts = []
-    for ckpt in ckpts:
-        path = ckpt.split("/")
-        experiment_type, calibrated, optim, num_labeled = path[-2].split("_")
-        experiment_type = f"{experiment_type}_{calibrated}_{optim}"
-        ckpt_dicts.append({"experiment_type": experiment_type, "path": ckpt, "num_labeled": int(num_labeled)})
-
-    ckpt_dicts = sorted(ckpt_dicts, key=lambda x: int(x["num_labeled"]))
+    for c in ckpts:
+        name = os.path.splitext(os.path.basename(c))[0]
+        al_iter, _, _ = name.split("-")
+        ckpt_dicts.append({"path": c, "al_iter": int(al_iter)})
 
     return ckpt_dicts
 
+def test(f: nn.Module, dload_test:DataLoader, n_classes:int, device,test_dir: str):
+    all_corrects, all_losses = [], []
+    all_confs, all_gts = [], []
+    test_loss, test_acc, test_ece = np.inf, 0.0, np.inf
+    ece, diagram = ECE(10), ReliabilityDiagram(10)
+ 
 
-limit_dict = {
-    "cifar10": 40000,
-    "cifar100": 40000,
-    "svhn": 40000,
-    "bloodmnist": 4000,
-    "dermamnist": 4000,
-    "pneumoniamnist": 4000,
-    "organsmnist": 4000,
-    "organcmnist": 4000,
-}
+    f.eval()
+    for i, (x, y) in enumerate(tqdm(dload_test, desc="Testing")):
+        x, y = x.to(device), y.to(device).squeeze().long()
 
-equal_dict = {
-    "pneumoniamnist": 2400,  # labels per class 50 / 12 iterations
-    "bloodmnist": 4000,  # labels per class 50 / 10 iterations (4000)
-    "organcmnist": 3850,  # labels per class 35 / 10 iterations (3850)
-    "organsmnist": 3850,  # labels per class 35 / 10 iterations (3850)
-}
+        with t.no_grad():
+            logits = f.classify(x)
+
+        loss, correct, confs, targets = (
+            t.nn.functional.cross_entropy(logits, y, reduction="none"),
+            (logits.max(1)[1] == y).float(),
+            t.nn.functional.softmax(logits, dim=1),
+            y,
+        )
+
+        all_gts.extend(targets)
+        all_confs.extend(confs) 
+        all_losses.extend(loss)
+        all_corrects.extend(correct)
 
 
+    test_loss = np.mean([loss.item() for loss in all_losses])
+    test_acc = np.mean([correct.item() for correct in all_corrects])
+
+
+    all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, n_classes))
+    all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
+
+    test_ece = ece.measure(all_confs, all_gts)
+    pl = diagram.plot(all_confs, all_gts, tikz=True)
+
+    test_metrics = {"test_loss": test_loss, "test_acc": test_acc, "test_ece": test_ece}
+    test_metrics = pd.DataFrame(test_metrics, index=[0])
+
+
+    if not os.path.exists(test_dir):
+        os.makedirs(test_dir, exist_ok=True)
+
+    save_rel_diagram(pl, test_dir)
+
+    test_metrics.to_csv(f"{test_dir}/test_metrics.csv", index=False)
+
+    print(f"Test Loss: {test_loss} | Test Accuracy: {test_acc} | ECE: {test_ece}")
+
+
+
+    
 def main(config):
-    datamodule = DataModule(accelerator=None, **config)
-    datamodule.prepare_data()
-
-    (
-        dload_train,
-        dload_train_labeled,
-        dload_train_unlabeled,
-        dload_valid,
-        train_labeled_inds,
-        train_unlabeled_inds,
-    ) = datamodule.get_data(
-        sample_method="random" if config["labels_per_class"] <= 0 else "equal",
-        init_size=config["query_size"],
-        labels_per_class=config["labels_per_class"],
-    )
+    initialize(config["seed"])
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
-    ckpt_dir, _, test_dir = get_directories(**config)
-    limit = limit_dict[config["dataset"]] if config["labels_per_class"] <= 0 else equal_dict[config["dataset"]]
-    labels_per_class = config["labels_per_class"]
 
-    f = F(n_channels=datamodule.img_shape[0], n_classes=datamodule.n_classes, **config).to(device)
+    datamodule = DataModule(**config)
+    datamodule.prepare_data()
+    dload_test = datamodule.get_test_data()
 
-    for ckpt_dict in get_ckpts(ckpt_dir, config["experiment_type"]):
-        experiment_type, path, num_labeled = ckpt_dict.values()
-
-        """Load the best checkpoint"""
-        print(f"Loading best checkpoint from {path}.")
-        f.load_state_dict(t.load(path)["model_state_dict"])
-        f.to(device)
-
-        """---TESTING---"""
-        folder_name = f"{test_dir}/{experiment_type}_{num_labeled}"
-        test_model(f=f, datamodule=datamodule, test_dir=folder_name, num_labeled=num_labeled)
-
-        if len(train_labeled_inds) >= limit:
-            break
-
-        # Least confident sampling
-        if config["labels_per_class"] == 0:
-            print(f"Querying {config['query_size']} samples using least confident sampling.")
-            inds_to_fix = datamodule.query_samples(
-                f,
-                dload_train_unlabeled,
-                train_unlabeled_inds,
-                config["query_size"],
-            )
-            (
-                dload_train,
-                dload_train_labeled,
-                dload_train_unlabeled,
-                dload_valid,
-                train_labeled_inds,
-                train_unlabeled_inds,
-            ) = datamodule.get_data(
-                train_labeled_inds,
-                train_unlabeled_inds,
-                inds_to_fix,
-                start_iter=False,
-            )
-
-        # Equal labels sampling
-        elif config["labels_per_class"] > 0:
-            print(f"Querying {config['labels_per_class']} samples per class.")
-            labels_per_class += config["labels_per_class"]
-            (
-                dload_train,
-                dload_train_labeled,
-                dload_train_unlabeled,
-                dload_valid,
-                train_labeled_inds,
-                train_unlabeled_inds,
-            ) = datamodule.get_data(
-                train_labeled_inds,
-                train_unlabeled_inds,
-                sample_method="equal",
-                labels_per_class=labels_per_class,
-            )
-
-
+    ckpt_dir = f'{config['log_dir']}/checkpoints'
+    test_dir = f'{config['log_dir']}/test'
+    
+    f = F(n_channels=datamodule.img_shape[0], n_classes=datamodule.n_classes, **config)
+    f = f.to(device)
+    
+    ckpt_dicts = get_ckpt_dicts(ckpt_dir)
+    for cd in ckpt_dicts:
+        f.load_state_dict(t.load(cd["path"])["model_state_dict"])
+        test(f, dload_test, datamodule.n_classes, device, f'{test_dir}/{cd["al_iter"]}' )
+ 
 if __name__ == "__main__":
     config = vars(parse_args())
-    set_seed(config["seed"])
-
-    """Scale batch size by number of GPUs for reproducibility"""
-    config.update({"batch_size": config["batch_size"] // t.cuda.device_count()})
-    config.update({"px": 1.0 if config["calibrated"] else 0.0})
-
     main(config)

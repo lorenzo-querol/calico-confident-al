@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+from copy import deepcopy
 
 import numpy as np
 import torch as t
@@ -83,7 +84,7 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
         return init_random(datamodule, bs), []
 
     buffer_size = len(replay_buffer) if y is None else len(replay_buffer) // datamodule.n_classes
-    inds = t.randint(0, buffer_size, (bs,))
+    inds = t.randint(0, buffer_size, (bs,), generator=t.Generator().manual_seed(config["seed"]))
 
     # If conditional, convert inds to class-conditional inds
     if y is not None:
@@ -97,7 +98,7 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
     return samples.to("cuda"), inds
 
 
-def sample_q(f, datamodule, replay_buffer, batch_size, n_steps, in_steps, sgld_std, sgld_lr, pyld_lr, eps, y=None, save=True, **config):
+def sample_q(f, datamodule, replay_buffer, batch_size, total_steps, in_steps, sgld_std, sgld_lr, pyld_lr, eps, y=None, save=True, **config):
     bs = batch_size
 
     init_sample, buffer_inds = sample_p_0(replay_buffer=replay_buffer, datamodule=datamodule, bs=bs, y=y, **config)
@@ -109,7 +110,7 @@ def sample_q(f, datamodule, replay_buffer, batch_size, n_steps, in_steps, sgld_s
     if pyld_lr <= 0:
         in_steps = 0
 
-    for it in range(n_steps):
+    for it in range(total_steps):
         energies = f(x_k)
         e_x = energies.sum()
         eta = t.autograd.grad(e_x, [x_k], retain_graph=True)[0]
@@ -179,13 +180,8 @@ def category_mean(dload_train, datamodule):
     if not os.path.exists("weights"):
         os.makedirs("weights")
 
-    if datamodule.accelerator:
-        if datamodule.accelerator.is_main_process:
-            t.save(centers, f"weights/{dataset}_mean.pt")
-            t.save(covs, f"weights/{dataset}_cov.pt")
-    else:
-        t.save(centers, f"weights/{dataset}_mean.pt")
-        t.save(covs, f"weights/{dataset}_cov.pt")
+    t.save(centers, f"weights/{dataset}_mean.pt")
+    t.save(covs, f"weights/{dataset}_cov.pt")
 
 
 def fit(
@@ -213,6 +209,8 @@ def fit(
     new_lr = config["lr"]
     best_val_loss, best_val_acc, best_val_ece = np.inf, 0.0, np.inf
     best_ckpt_path = None
+    reset_decay = 1.0
+    additional_step = 0
 
     for epoch in range(config["n_epochs"]):
         if epoch in config["decay_epochs"]:
@@ -222,146 +220,165 @@ def fit(
 
             print(f"Decaying LR to {new_lr:.8f}.")
 
-        epoch_loss = 0.0
-        epoch_acc = 0.0
-        epoch_l_px = 0.0
-        epoch_l_pyx = 0.0
-        epoch_l_l2 = 0.0
-        l_px = 0.0
-        l_l2 = 0.0
+        try:
+            epoch_loss = 0.0
+            epoch_acc = 0.0
+            epoch_l_px = 0.0
+            epoch_l_pyx = 0.0
+            epoch_l_l2 = 0.0
+            l_px = 0.0
+            l_l2 = 0.0
 
-        # Training
-        f.train()
-        for i, (x_p_d, _) in enumerate(tqdm(dload_train, desc=(f"Epoch {epoch+1}/{config['n_epochs']}"))):
-            """Warmup Learning Rate"""
-            if cur_iter <= config["warmup_iters"]:
-                lr = config["lr"] * cur_iter / float(config["warmup_iters"])
-                for param_group in optim.param_groups:
-                    param_group["lr"] = lr
+            # Training
+            for i, (x_p_d, _) in enumerate(tqdm(dload_train, desc=(f"Epoch {epoch+1}/{config['n_epochs']}"))):
+                """Warmup Learning Rate"""
+                if cur_iter <= config["warmup_iters"]:
+                    lr = config["lr"] * reset_decay * cur_iter / float(config["warmup_iters"])
+                    for param_group in optim.param_groups:
+                        param_group["lr"] = lr
 
-            x_p_d = x_p_d.to(device)
-            x_lab, y_lab = dload_train_labeled.__next__()
-            x_lab, y_lab = (x_lab.to(device), y_lab.to(device).squeeze().long())
+                x_p_d = x_p_d.to(device)
+                x_lab, y_lab = dload_train_labeled.__next__()
+                x_lab, y_lab = (x_lab.to(device), y_lab.to(device).squeeze().long())
 
-            L = 0.0
+                L = 0.0
 
-            """Maximize log P(x)"""
-            if config["px"] > 0:
-                fp_all = f(x_p_d)
-                fp = fp_all.mean()
+                """Maximize log P(x)"""
+                if config["px"] > 0:
+                    fp_all = f(x_p_d)
+                    fp = fp_all.mean()
 
-                x_q = sample_q(f, datamodule, replay_buffer, **config)
-                fq_all = f(x_q)
-                fq = fq_all.mean()
+                    x_q = sample_q(f, datamodule, replay_buffer, total_steps=config["n_steps"] + additional_step, **config)
+                    fq_all = f(x_q)
+                    fq = fq_all.mean()
 
-                l_px = fq - fp
-                L += config["px"] * l_px
+                    l_px = fq - fp
+                    L += config["px"] * l_px
 
-                if config["l2"] > 0:
-                    l_l2 = (fq**2 + fp**2).mean() * config["l2"]
-                    L += l_l2
+                    if config["l2"] > 0:
+                        l_l2 = (fq**2 + fp**2).mean() * config["l2"]
+                        L += l_l2
 
-            """Maximize log P(y|x)"""
-            if config["pyx"] > 0:
-                logits = f.classify(x_lab)
-                l_pyx = nn.functional.cross_entropy(logits, y_lab)
-                acc = (logits.max(1)[1] == y_lab).float().mean()
-                L += config["pyx"] * l_pyx
+                """Maximize log P(y|x)"""
+                if config["pyx"] > 0:
+                    logits = f.classify(x_lab)
+                    l_pyx = nn.functional.cross_entropy(logits, y_lab)
+                    acc = (logits.max(1)[1] == y_lab).float().mean()
+                    L += config["pyx"] * l_pyx
 
-            epoch_loss += L.item()
-            epoch_acc += acc.item()
-            epoch_l_px += l_px.item() if config["px"] > 0 else 0.0
-            epoch_l_l2 += l_l2.item() if config["l2"] > 0 else 0.0
-            epoch_l_pyx += l_pyx.item()
+                epoch_loss += L.item()
+                epoch_acc += acc.item()
+                epoch_l_px += l_px.item() if config["px"] > 0 else 0.0
+                epoch_l_l2 += l_l2.item() if config["l2"] > 0 else 0.0
+                epoch_l_pyx += l_pyx.item()
 
-            """Take gradient step"""
-            optim.zero_grad()
-            L.backward()
-            optim.step()
-            cur_iter += 1
+                if L.abs().item() > 1e8 or t.isnan(L):
+                    raise ValueError("Loss diverged...")
 
-        # Validation
-        f.eval()
-        all_corrects, all_losses, all_confs, all_gts = [], [], [], []
-        val_loss, val_acc = np.inf, 0.0
-        for inputs, labels in dload_valid:
-            inputs, labels = inputs.to(device), labels.to(device).squeeze().long()
+                """Take gradient step"""
+                optim.zero_grad()
+                L.backward()
+                optim.step()
+                cur_iter += 1
 
-            with t.no_grad():
-                logits = f.classify(inputs)
+            # Validation
+            f.eval()
 
-            losses, corrects, confs, targets = (
-                t.nn.functional.cross_entropy(logits, labels, reduction="none"),
-                (logits.max(1)[1] == labels).float(),
-                t.nn.functional.softmax(logits, dim=1),
-                labels,
+            all_corrects, all_losses, all_confs, all_gts = [], [], [], []
+            val_loss, val_acc = np.inf, 0.0
+            for inputs, labels in dload_valid:
+                inputs, labels = inputs.to(device), labels.to(device).squeeze().long()
+
+                with t.no_grad():
+                    logits = f.classify(inputs)
+
+                losses, corrects, confs, targets = (
+                    t.nn.functional.cross_entropy(logits, labels, reduction="none"),
+                    (logits.max(1)[1] == labels).float(),
+                    t.nn.functional.softmax(logits, dim=1),
+                    labels,
+                )
+
+                all_gts.extend(targets)
+                all_confs.extend(confs)
+
+                all_losses.extend(loss.item() for loss in losses)
+                all_corrects.extend(correct.item() for correct in corrects)
+
+            all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
+            all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
+
+            val_ece = ECE(10).measure(all_confs, all_gts)
+            val_loss = np.mean(all_losses)
+            val_acc = np.mean(all_corrects)
+
+            if val_loss < best_val_loss:
+                best_val_loss, best_val_acc, best_val_ece = val_loss, val_acc, val_ece
+
+                best_ckpt_path = f"{ckpt_dir}/al_iter={al_iter}-epoch={epoch}-best.pt"
+                if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
+                    os.remove(best_ckpt_path)
+
+                ckpt_dict = {
+                    "model_state_dict": deepcopy(f.state_dict()),
+                    "replay_buffer": replay_buffer,
+                }
+                t.save(ckpt_dict, best_ckpt_path)
+
+            f.train()
+
+            # Logging
+            if (epoch + (config["n_epochs"] * al_iter)) % config["sample_every_n_epochs"] == 0 and config["px"] > 0:
+                x_q = sample_q(f, datamodule, replay_buffer, total_steps=config["n_steps"] + additional_step, **config)
+                plot(f"{samples_dir}/x_q-al_iter={al_iter}-epoch={epoch}.png", x_q)
+
+            epoch_loss /= len(dload_train)
+            epoch_acc /= len(dload_train)
+            epoch_l_px /= len(dload_train)
+            epoch_l_pyx /= len(dload_train)
+            epoch_l_l2 /= len(dload_train)
+
+            print(
+                f"loss: {epoch_loss:.4f}",
+                f"acc: {epoch_acc:.4f}",
+                f"l_px: {epoch_l_px:.4f}",
+                f"l_pyx: {epoch_l_pyx:.4f}",
+                f"l_l2: {epoch_l_l2:.4f}",
+                f"val_loss: {val_loss:.4f}",
+                f"val_acc: {val_acc:.4f}",
+                f"val_ece: {val_ece:.4f}",
+                sep=" | ",
             )
 
-            all_gts.extend(targets)
-            all_confs.extend(confs)
+            if config["enable_tracking"]:
+                log_values = {
+                    "epoch": epoch + (config["n_epochs"] * al_iter) + 1,
+                    "loss": epoch_loss,
+                    "l_px": epoch_l_px,
+                    "l_pyx": epoch_l_pyx,
+                    "l_l2": epoch_l_l2,
+                    "acc": epoch_acc,
+                    "val_loss": val_loss,
+                    "val_acc": val_acc,
+                    "val_ece": val_ece,
+                }
+                wandb.log(log_values)
 
-            all_losses.extend(loss.item() for loss in losses)
-            all_corrects.extend(correct.item() for correct in corrects)
+        except ValueError as e:
+            print(e)
+            print("Loading best checkpoint: ", best_ckpt_path)
 
-        all_confs = np.array([conf.cpu().numpy() for conf in all_confs]).reshape((-1, datamodule.n_classes))
-        all_gts = np.array([gt.cpu().numpy() for gt in all_gts])
+            ckpt_dict = t.load(best_ckpt_path)
+            f.load_state_dict(ckpt_dict["model_state_dict"])
+            f.train()
 
-        val_ece = ECE(10).measure(all_confs, all_gts)
-        val_loss = np.mean(all_losses)
-        val_acc = np.mean(all_corrects)
+            replay_buffer = ckpt_dict["replay_buffer"]
 
-        if val_loss < best_val_loss:
-            best_val_loss, best_val_acc, best_val_ece = val_loss, val_acc, val_ece
+            reset_decay = reset_decay * 0.5
+            for param_group in optim.param_groups:
+                param_group["lr"] = param_group["lr"] * reset_decay
 
-            if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
-                os.remove(best_ckpt_path)
-
-            ckpt_dict = {
-                "model_state_dict": f.state_dict(),
-                "optimizer_state_dict": optim.state_dict(),
-                "replay_buffer": replay_buffer,
-            }
-            t.save(ckpt_dict, f"{ckpt_dir}/al_iter={al_iter}-epoch={epoch}-val_loss_{val_loss:.4f}.ckpt")
-
-        # Logging
-
-        if (epoch + (config["n_epochs"] * al_iter)) % config["sample_every_n_epochs"] == 0 and config["px"] > 0:
-            x_q = sample_q(f, datamodule, replay_buffer, **config)
-            plot(f"{samples_dir}/x_q-al_iter={al_iter}-epoch={epoch}.png", x_q)
-
-        epoch_loss /= len(dload_train)
-        epoch_acc /= len(dload_train)
-        epoch_l_px /= len(dload_train)
-        epoch_l_pyx /= len(dload_train)
-        epoch_l_l2 /= len(dload_train)
-
-        print(
-            f"loss: {epoch_loss:.4f}",
-            f"acc: {epoch_acc:.4f}",
-            f"l_px: {epoch_l_px:.4f}",
-            f"l_pyx: {epoch_l_pyx:.4f}",
-            f"l_l2: {epoch_l_l2:.4f}",
-            f"val_loss: {val_loss:.4f}",
-            f"val_acc: {val_acc:.4f}",
-            f"val_ece: {val_ece:.4f}",
-            sep="\t",
-        )
-
-        if config["enable_tracking"]:
-            log_values = {
-                "epoch": epoch + (config["n_epochs"] * al_iter) + 1,
-                "loss": epoch_loss,
-                "l_px": epoch_l_px,
-                "l_pyx": epoch_l_pyx,
-                "l_l2": epoch_l_l2,
-                "acc": epoch_acc,
-                "val_loss": val_loss,
-                "val_acc": val_acc,
-                "val_ece": val_ece,
-            }
-            wandb.log(log_values)
-
-    """Log the final epoch"""
+    """Log final epoch"""
     if config["enable_tracking"]:
         wandb.log(
             {
@@ -377,7 +394,7 @@ def fit(
             }
         )
 
-    """Log the best epoch"""
+    """Log the final best epoch"""
     if config["enable_tracking"]:
         wandb.log(
             {
@@ -388,14 +405,13 @@ def fit(
             }
         )
 
-    """Save the last checkpoint"""
+    """Save last checkpoint"""
     ckpt_dict = {
-        "model_state_dict": f.state_dict(),
-        "optimizer_state_dict": optim.state_dict(),
+        "model_state_dict": deepcopy(f.state_dict()),
         "replay_buffer": replay_buffer,
     }
 
-    t.save(ckpt_dict, f"{ckpt_dir}/al_iter={al_iter}-epoch={epoch}-last.ckpt")
+    t.save(ckpt_dict, f"{ckpt_dir}/al_iter={al_iter}-epoch={epoch}-last.pt")
 
     return f
 
@@ -456,6 +472,7 @@ def main(config):
 
         if config["enable_tracking"]:
             wandb.init(project="CALICO", config=config, group=config["dataset"], name=config["exp_name"])
+            wandb.config.update(config)
 
         trained_f = fit(
             f=raw_f,

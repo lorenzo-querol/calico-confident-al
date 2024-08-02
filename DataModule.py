@@ -158,9 +158,11 @@ class DataModule:
             dataset,
             batch_size=self.batch_size if train else 250,
             shuffle=shuffle,
-            num_workers=4,
+            num_workers=16,
             drop_last=drop_last,
             pin_memory=True,
+            generator=t.Generator().manual_seed(self.seed),
+            persistent_workers=True,
         )
 
     def get_test_data(self):
