@@ -1,7 +1,7 @@
 #!/bin/bash
 
 DATASET=$1
-export CUDA_VISIBLE_DEVICES=$2
+export CUDA_VISIBLE_DEVICES="1"
 
 python train_jempp.py \
     --model yopo \

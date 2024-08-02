@@ -27,13 +27,16 @@ class Hamiltonian(_Loss):
 
 
 def initialize(seed: int):
+    random.seed(seed)
     np.random.seed(seed)
+
     t.manual_seed(seed)
+
     if t.cuda.is_available():
         t.cuda.manual_seed_all(seed)
+
     t.backends.cudnn.deterministic = True
     t.backends.cudnn.benchmark = False
-    random.seed(seed)
 
 
 def load_config(config_path: Path) -> Dict:

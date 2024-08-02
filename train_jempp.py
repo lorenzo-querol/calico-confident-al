@@ -62,8 +62,8 @@ def init_from_centers(device, datamodule: DataModule, buffer_size: int, load_pat
     img_shape = datamodule.img_shape
     bs = buffer_size
 
-    centers = t.load(f"weights/{dataset}_mean.pt")
-    covs = t.load(f"weights/{dataset}_cov.pt")
+    centers = t.load(f"weights/{dataset}_mean.pt", weights_only=True)
+    covs = t.load(f"weights/{dataset}_cov.pt", weights_only=True)
 
     buffer = []
     for i in range(n_classes):

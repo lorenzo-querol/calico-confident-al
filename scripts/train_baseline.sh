@@ -7,8 +7,8 @@ python train_jempp.py \
     --model yopo \
     --lr 0.1 --optimizer sgd --norm batch --decay_epochs 50 100 125 \
     --n_epochs 150 \
-    --px 1.0 --pyx 1.0 --l2 0.0 \
+    --px 0.0 --pyx 1.0 --l2 0.0 \
     --n_steps 10 --in_steps 5 \
-    --dataset $DATASET --query_size 250 \
-    --exp_name calico --enable_tracking
+    --dataset $DATASET --query_size 4000 \
+    --exp_name baseline --enable_tracking
     
