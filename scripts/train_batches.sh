@@ -1,8 +1,8 @@
 #!/bin/bash
 
-bash scripts/train_baseline.sh bloodmnist 
-bash scripts/train_baseline.sh organcmnist 
-bash scripts/train_baseline.sh organsmnist
-bash scripts/train_baseline.sh pneumoniamnist
-bash scripts/train_baseline.sh dermamnist
+bash scripts/train_active.sh bloodmnist 
+bash scripts/train_active.sh organcmnist 
+bash scripts/train_active.sh organsmnist
+bash scripts/train_active.sh pneumoniamnist
+bash scripts/train_active.sh dermamnist
     
