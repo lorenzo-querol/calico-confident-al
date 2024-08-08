@@ -1,18 +1,3 @@
-# coding=utf-8
-# Copyright 2019 The Google Research Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import os
 from copy import deepcopy
 
@@ -84,7 +69,7 @@ def sample_p_0(replay_buffer, datamodule, bs, reinit_freq, y=None, **config):
         return init_random(datamodule, bs), []
 
     buffer_size = len(replay_buffer) if y is None else len(replay_buffer) // datamodule.n_classes
-    inds = t.randint(0, buffer_size, (bs,), generator=t.Generator().manual_seed(config["seed"]))
+    inds = t.randint(0, buffer_size, (bs,))
 
     # If conditional, convert inds to class-conditional inds
     if y is not None:
@@ -207,7 +192,7 @@ def fit(
 
     cur_iter = 0
     new_lr = config["lr"]
-    best_val_loss, best_val_acc, best_val_ece = np.inf, 0.0, np.inf
+    best_val_loss = np.inf
     best_ckpt_path = None
     reset_decay = 1.0
     additional_step = 0
@@ -313,7 +298,7 @@ def fit(
             val_acc = np.mean(all_corrects)
 
             if val_loss < best_val_loss:
-                best_val_loss, best_val_acc, best_val_ece = val_loss, val_acc, val_ece
+                best_val_loss = val_loss
 
                 best_ckpt_path = f"{ckpt_dir}/al_iter={al_iter}-epoch={epoch}-best.pt"
                 if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
@@ -341,9 +326,6 @@ def fit(
             print(
                 f"loss: {epoch_loss:.4f}",
                 f"acc: {epoch_acc:.4f}",
-                f"l_px: {epoch_l_px:.4f}",
-                f"l_pyx: {epoch_l_pyx:.4f}",
-                f"l_l2: {epoch_l_l2:.4f}",
                 f"val_loss: {val_loss:.4f}",
                 f"val_acc: {val_acc:.4f}",
                 f"val_ece: {val_ece:.4f}",
@@ -354,9 +336,6 @@ def fit(
                 log_values = {
                     "epoch": epoch + (config["n_epochs"] * al_iter) + 1,
                     "loss": epoch_loss,
-                    "l_px": epoch_l_px,
-                    "l_pyx": epoch_l_pyx,
-                    "l_l2": epoch_l_l2,
                     "acc": epoch_acc,
                     "val_loss": val_loss,
                     "val_acc": val_acc,
@@ -384,24 +363,10 @@ def fit(
             {
                 "num_labeled": len(datamodule.train_labeled_indices),
                 "loss": epoch_loss,
-                "l_px": epoch_l_px,
-                "l_pyx": epoch_l_pyx,
-                "l_l2": epoch_l_l2,
                 "acc": epoch_acc,
                 "val_loss": val_loss,
                 "val_acc": val_acc,
                 "val_ece": val_ece,
-            }
-        )
-
-    """Log the final best epoch"""
-    if config["enable_tracking"]:
-        wandb.log(
-            {
-                "num_labeled": len(datamodule.train_labeled_indices),
-                "best_val_loss": best_val_loss,
-                "best_val_acc": best_val_acc,
-                "best_val_ece": best_val_ece,
             }
         )
 
@@ -432,7 +397,8 @@ equal_dict = {
 }
 
 
-def main(config):
+def main():
+    config = vars(parse_args())
     initialize(config["seed"])
 
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
@@ -556,5 +522,4 @@ def main(config):
 
 
 if __name__ == "__main__":
-    config = vars(parse_args())
-    main(config)
+    main()

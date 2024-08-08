@@ -1,14 +1,12 @@
 import argparse
 import os
 import random
-import time
 from pathlib import Path
 from typing import Dict
 
 import numpy as np
 import torch
 import torch as t
-import torch.nn as nn
 import torchvision as tv
 import yaml
 from torch.nn.modules.loss import _Loss
@@ -29,8 +27,7 @@ class Hamiltonian(_Loss):
 def initialize(seed: int):
     random.seed(seed)
     np.random.seed(seed)
-
-    t.manual_seed(seed)
+    t.set_num_threads(2)
 
     if t.cuda.is_available():
         t.cuda.manual_seed_all(seed)
@@ -50,45 +47,6 @@ def sqrt(x):
 
 def plot(p, x):
     return tv.utils.save_image(t.clamp(x, -1, 1), p, normalize=True, nrow=sqrt(x.size(0)))
-
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
-
-
-def eval_classification(f, dload, set_name, epoch, args=None, print=None):
-    corrects, losses = [], []
-
-    for x, y in dload:
-        x, y = x.to(args.device), y.to(args.device)
-        logits = f.module.classify(x)
-        loss = nn.CrossEntropyLoss(reduction="none")(logits, y).detach().cpu().numpy()
-        correct = (logits.max(1)[1] == y).float().cpu().numpy()
-
-        losses.extend(loss)
-        corrects.extend(correct)
-
-    loss = np.mean(losses)
-
-    return correct, loss
-
-
-def write_to_yaml(data, path):
-    with open(path, "w") as f:
-        yaml.dump(data, f)
 
 
 def create_log_dir(log_dir):
@@ -158,39 +116,3 @@ def parse_args():
     args = parser.parse_args()
 
     return args
-
-
-def get_experiment_name(dataset: str, experiment_name: str, **config):
-    return f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_{dataset}" if experiment_name is None else experiment_name
-
-
-def get_logger_kwargs(experiment_name: str, experiment_type: str, seed: int, **config):
-    """
-    Returns a dictionary of keyword arguments to pass to the logger. The logger will log the experiment to the
-    `experiment_name` group and name the run `test_{experiment_type}_seed_{seed}`.
-
-    Params:
-    - experiment_name: The name of the experiment.
-    - experiment_type: The type of experiment (e.g. "jvq").
-    - seed: The seed used for the experiment.
-    - config: The configuration dictionary.
-
-    Return:
-    - A dictionary containing group and name of the project.
-    """
-    run_name = f"test_{experiment_type}_seed_{seed}"
-
-    logger_kwargs = {
-        "group": experiment_name,
-        "name": run_name,
-    }
-
-    return logger_kwargs
-
-
-def get_directories(log_dir: str, experiment_name: str, seed: int, **config):
-    ckpt_dir = os.path.join(log_dir, experiment_name, "checkpoints")
-    samples_dir = os.path.join(log_dir, experiment_name, "samples")
-    test_dir = os.path.join("test", experiment_name, f"seed_{seed}")
-
-    return ckpt_dir, samples_dir, test_dir
